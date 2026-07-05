@@ -25,7 +25,7 @@ import {
 import { api } from "./api";
 import type { AuthResponse, CommentItem, Post, PostInput, User } from "./types";
 
-type Screen = "home" | "detail" | "compose" | "category";
+type Screen = "home" | "detail" | "compose" | "category" | "water";
 type OwnerCategory = "小说随笔" | "旅行日记" | "技术笔记" | "课程笔记与资料";
 type AuthMode = "login" | "register";
 const ownerCategories: Array<{ name: OwnerCategory; subtitle: string; description: string }> = [
@@ -328,6 +328,44 @@ function App() {
 
 
 
+
+  function openWaterArea() {
+    setScreen("water");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function renderWaterAreaCard() {
+    const recentWaterPosts = waterPosts.slice(0, 3);
+
+    return (
+      <article className="ownerCategoryCard waterAreaCard">
+        <button type="button" className="categoryTitleBar" onClick={openWaterArea}>
+          <span>
+            <strong>灌水区</strong>
+            <small>Commons</small>
+          </span>
+          <span className="categoryCount">{waterPosts.length}</span>
+        </button>
+        <p>灌水聊天局，普通用户的公开发帖会汇在这里。</p>
+        {recentWaterPosts.length > 0 ? (
+          <div className="categoryPreviewList">
+            {recentWaterPosts.map((post) => (
+              <button type="button" key={post.id} className="categoryPreviewItem" onClick={() => openPost(post.id)}>
+                <span>{post.title}</span>
+                <small>{formatDate(post.updated_at)}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="categoryPending" aria-label="待更新">
+            <span>待</span>
+            <span>更</span>
+            <span>新</span>
+          </div>
+        )}
+      </article>
+    );
+  }
   function openCategory(category: OwnerCategory) {
     setActiveCategory(category);
     setScreen("category");
@@ -740,13 +778,9 @@ function App() {
                 <p>灌水聊天局</p>
               </div>
 
-              {waterPosts.length > 0 ? (
-                <div className="postGrid waterGrid">
-                  {waterPosts.map((post) => renderPostCard(post, "water"))}
-                </div>
-              ) : (
-                <div className="emptyState">灌水区暂时还没有文章。</div>
-              )}
+              <div className="ownerCategoryGrid waterAreaGrid">
+                {renderWaterAreaCard()}
+              </div>
                 </div>
                 {renderHomeSidebar()}
               </div>
@@ -755,6 +789,46 @@ function App() {
         )}
 
 
+
+        {screen === "water" && (
+          <section className="categoryShell">
+            <div className="categoryHeroPanel waterHeroPanel">
+              <button className="textButton" onClick={() => goHome(true)}>
+                返回灌水区
+              </button>
+              <p className="eyebrow muted">
+                <MessageCircle size={15} />
+                Commons
+              </p>
+              <h1>灌水区</h1>
+              <p>灌水聊天局，普通用户的公开发帖会展示在这里。</p>
+            </div>
+
+            {waterPosts.length > 0 ? (
+              <>
+                {renderCategoryFeature(waterPosts[0])}
+                <div className="sectionHeader compact categoryListHeader">
+                  <div>
+                    <p className="eyebrow muted">Archive</p>
+                    <h2>全部发帖</h2>
+                  </div>
+                  <span>{waterPosts.length} 篇</span>
+                </div>
+                <div className="postGrid categoryPostGrid waterArchiveGrid">
+                  {waterPosts.map((post) => renderPostCard(post, "water"))}
+                </div>
+              </>
+            ) : (
+              <div className="emptyState categoryEmpty">
+                <div className="categoryPending" aria-label="待更新">
+                  <span>待</span>
+                  <span>更</span>
+                  <span>新</span>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
         {screen === "category" && activeCategory && (
           <section className="categoryShell">
             <div className="categoryHeroPanel">

@@ -28,6 +28,8 @@ import type { AuthResponse, CommentItem, Post, PostInput, User } from "./types";
 type Screen = "home" | "detail" | "compose" | "category" | "water";
 type OwnerCategory = "小说随笔" | "旅行日记" | "技术笔记" | "课程笔记与资料";
 type AuthMode = "login" | "register";
+const heroTitle = "云山苍苍，江水泱泱";
+const heroTitleChars = Array.from(heroTitle);
 const ownerCategories: Array<{ name: OwnerCategory; subtitle: string; description: string }> = [
   { name: "小说随笔", subtitle: "Fiction & Essays", description: "故事、短章、人物与生活里的细小光影。" },
   { name: "旅行日记", subtitle: "Travel Notes", description: "山海路途、城市片刻和抵达之前的风。" },
@@ -75,6 +77,8 @@ function App() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [imageAlt, setImageAlt] = useState("");
+  const [heroTypedCount, setHeroTypedCount] = useState(0);
+  const [heroCursorDone, setHeroCursorDone] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   const ownerPosts = useMemo(() => posts.filter((post) => post.author.role === "admin"), [posts]);
@@ -407,26 +411,20 @@ function App() {
     );
   }
 
-  function renderCategoryFeature(post: Post) {
+  function renderCategoryFeature(post: Post, variant: "cloud" | "water" = "cloud") {
     return (
-      <article className="categoryFeature" role="button" tabIndex={0} onClick={() => openPost(post.id)} onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openPost(post.id);
-        }
-      }}>
-        <div>
-          <p className="eyebrow muted">Featured</p>
-          <h2>{post.title}</h2>
-          <p>{post.excerpt}</p>
+      <section className="categoryFeatureBlock">
+        <div className="sectionHeader compact categoryFeatureHeader">
+          <div>
+            <p className="eyebrow muted">Featured</p>
+            <h2>热推文章</h2>
+          </div>
+          <span>最近一篇</span>
         </div>
-        <span className="featureMeta">
-          <Heart size={15} />
-          {post.like_count}
-          <MessageCircle size={15} />
-          {post.comment_count}
-        </span>
-      </article>
+        <div className="postGrid categoryFeatureGrid">
+          {renderPostCard(post, variant)}
+        </div>
+      </section>
     );
   }
   async function requestAiSummary() {
@@ -624,6 +622,39 @@ function App() {
     loadPosts().catch((error) => setNotice(error instanceof Error ? error.message : "文章加载失败"));
   }, []);
 
+  useEffect(() => {
+    if (screen !== "home") return;
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) {
+      setHeroTypedCount(heroTitleChars.length);
+      setHeroCursorDone(true);
+      return;
+    }
+
+    setHeroTypedCount(0);
+    setHeroCursorDone(false);
+    let typingTimer: number | undefined;
+    let fadeTimer: number | undefined;
+    const startTimer = window.setTimeout(() => {
+      let index = 0;
+      typingTimer = window.setInterval(() => {
+        index += 1;
+        setHeroTypedCount(index);
+        if (index >= heroTitleChars.length && typingTimer) {
+          window.clearInterval(typingTimer);
+          fadeTimer = window.setTimeout(() => setHeroCursorDone(true), 520);
+        }
+      }, 120);
+    }, 220);
+
+    return () => {
+      window.clearTimeout(startTimer);
+      if (typingTimer) window.clearInterval(typingTimer);
+      if (fadeTimer) window.clearTimeout(fadeTimer);
+    };
+  }, [screen]);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -712,7 +743,12 @@ function App() {
                   <Sparkles size={16} />
                   Personal Blog
                 </p>
-                <h1>云山苍苍，江水泱泱</h1>
+                <h1 aria-label={heroTitle}>
+                  <span className={heroCursorDone ? "typewriterTitle cursorDone" : "typewriterTitle"} aria-hidden="true">
+                    <span className="typewriterText">{heroTitleChars.slice(0, heroTypedCount).join("")}</span>
+                    <span className="typewriterCursor" />
+                  </span>
+                </h1>
                 <p className="heroCopy">
                   欢迎来到纸上尘的个人博客！在这里收录我的小说随笔，旅行日记，技术笔记和课程资料，欢迎评论点赞~也欢迎来灌水区随意发帖玩。
                 </p>
@@ -806,7 +842,7 @@ function App() {
 
             {waterPosts.length > 0 ? (
               <>
-                {renderCategoryFeature(waterPosts[0])}
+                {renderCategoryFeature(waterPosts[0], "water")}
                 <div className="sectionHeader compact categoryListHeader">
                   <div>
                     <p className="eyebrow muted">Archive</p>
@@ -845,7 +881,7 @@ function App() {
 
             {activeCategoryPosts.length > 0 ? (
               <>
-                {renderCategoryFeature(activeCategoryPosts[0])}
+                {renderCategoryFeature(activeCategoryPosts[0], "cloud")}
                 <div className="sectionHeader compact categoryListHeader">
                   <div>
                     <p className="eyebrow muted">Archive</p>

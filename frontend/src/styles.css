@@ -924,6 +924,47 @@ body {
   font-size: clamp(30px, 5.6vw, 76px);
 }
 
+.typewriterTitle {
+  display: inline-flex;
+  min-width: 9.2em;
+  align-items: baseline;
+}
+
+.typewriterText {
+  white-space: nowrap;
+}
+
+.typewriterCursor {
+  display: inline-block;
+  width: 0.055em;
+  height: 0.88em;
+  margin-left: 0.075em;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translateY(0.08em);
+  animation: typewriterCursorBlink 0.72s step-end infinite;
+}
+
+.typewriterTitle.cursorDone .typewriterCursor {
+  animation: typewriterCursorFade 0.48s ease forwards;
+}
+
+@keyframes typewriterCursorBlink {
+  0%, 48% {
+    opacity: 1;
+  }
+
+  49%, 100% {
+    opacity: 0.18;
+  }
+}
+
+@keyframes typewriterCursorFade {
+  to {
+    opacity: 0;
+  }
+}
+
 .heroCopy {
   max-width: 780px;
 }
@@ -1521,6 +1562,30 @@ body {
   line-height: 1.1;
 }
 
+.categoryFeatureBlock {
+  margin-top: 22px;
+}
+
+.categoryFeatureHeader {
+  margin-bottom: 14px;
+}
+
+.categoryFeatureHeader span {
+  color: var(--soft-ink);
+  font-weight: 850;
+}
+
+.categoryFeatureGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.categoryFeatureGrid .postCard {
+  min-height: 260px;
+}
+
+.categoryFeatureGrid .cloudCard {
+  min-height: 318px;
+}
 .categoryFeature {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1600,6 +1665,7 @@ body {
 
 @media (max-width: 980px) {
   .ownerCategoryGrid,
+  .categoryFeatureGrid,
   .categoryPostGrid,
   .categoryChoices {
     grid-template-columns: 1fr;

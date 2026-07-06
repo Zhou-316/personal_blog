@@ -78,7 +78,6 @@ function App() {
   const [imageUrl, setImageUrl] = useState("");
   const [imageAlt, setImageAlt] = useState("");
   const [heroTypedCount, setHeroTypedCount] = useState(0);
-  const [heroCursorDone, setHeroCursorDone] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   const ownerPosts = useMemo(() => posts.filter((post) => post.author.role === "admin"), [posts]);
@@ -576,7 +575,15 @@ function App() {
       >
         <div className="cardTopline">
           <span>{post.mood}</span>
-          <time>{formatDate(post.updated_at)}</time>
+          <div className="cardTopMeta">
+            {variant === "water" && (
+              <span className="waterAuthorTop">
+                <UserRound size={13} />
+                @{post.author.username}
+              </span>
+            )}
+            <time>{formatDate(post.updated_at)}</time>
+          </div>
         </div>
         <h3 className="cardTitle">{post.title}</h3>
         <p>{post.excerpt}</p>
@@ -628,14 +635,11 @@ function App() {
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (prefersReducedMotion) {
       setHeroTypedCount(heroTitleChars.length);
-      setHeroCursorDone(true);
       return;
     }
 
     setHeroTypedCount(0);
-    setHeroCursorDone(false);
     let typingTimer: number | undefined;
-    let fadeTimer: number | undefined;
     const startTimer = window.setTimeout(() => {
       let index = 0;
       typingTimer = window.setInterval(() => {
@@ -643,7 +647,6 @@ function App() {
         setHeroTypedCount(index);
         if (index >= heroTitleChars.length && typingTimer) {
           window.clearInterval(typingTimer);
-          fadeTimer = window.setTimeout(() => setHeroCursorDone(true), 520);
         }
       }, 120);
     }, 220);
@@ -651,7 +654,6 @@ function App() {
     return () => {
       window.clearTimeout(startTimer);
       if (typingTimer) window.clearInterval(typingTimer);
-      if (fadeTimer) window.clearTimeout(fadeTimer);
     };
   }, [screen]);
 
@@ -711,7 +713,7 @@ function App() {
           </button>
           <button className="solidButton" onClick={() => startCompose()}>
             <PenLine size={17} />
-            写文章
+            写札记
           </button>
           {user ? (
             <button className="iconTextButton" onClick={logout}>
@@ -744,7 +746,7 @@ function App() {
                   Personal Blog
                 </p>
                 <h1 aria-label={heroTitle}>
-                  <span className={heroCursorDone ? "typewriterTitle cursorDone" : "typewriterTitle"} aria-hidden="true">
+                  <span className="typewriterTitle" aria-hidden="true">
                     <span className="typewriterText">{heroTitleChars.slice(0, heroTypedCount).join("")}</span>
                     <span className="typewriterCursor" />
                   </span>
@@ -755,7 +757,7 @@ function App() {
                 <div className="heroButtons">
                   <button className="solidButton large" onClick={() => startCompose()}>
                     <Plus size={18} />
-                    新札记
+                    写札记
                   </button>
                   {featured && (
                     <button className="glassButton large" onClick={() => openPost(featured.id)}>
@@ -830,7 +832,7 @@ function App() {
           <section className="categoryShell">
             <div className="categoryHeroPanel waterHeroPanel">
               <button className="textButton" onClick={() => goHome(true)}>
-                返回灌水区
+                返回主页
               </button>
               <p className="eyebrow muted">
                 <MessageCircle size={15} />
@@ -869,7 +871,7 @@ function App() {
           <section className="categoryShell">
             <div className="categoryHeroPanel">
               <button className="textButton" onClick={() => goHome(true)}>
-                返回云纸之上
+                返回主页
               </button>
               <p className="eyebrow muted">
                 <Leaf size={15} />
@@ -909,7 +911,7 @@ function App() {
             <article className="reader">
               <div className="readerMeta">
                 <button className="textButton" onClick={() => goHome(true)}>
-                  返回文章流
+                  返回主页
                 </button>
                 <span>{activePost.mood}</span>
                 <time>{formatDate(activePost.updated_at)}</time>
@@ -998,6 +1000,9 @@ function App() {
         {screen === "compose" && (
           <section className="composerShell">
             <form className="composer" onSubmit={savePost}>
+              <button type="button" className="textButton composeBackButton" onClick={() => goHome(true)}>
+                返回主页
+              </button>
               <div className="sectionHeader compact">
                 <div>
                   <p className="eyebrow muted">
@@ -1005,6 +1010,9 @@ function App() {
                     Writing
                   </p>
                   <h2>{editingId ? "整理这篇札记" : "写一篇新札记"}</h2>
+                  {!editingId && user?.role !== "admin" && (
+                    <p className="composeHint">您发的帖子将被展示在灌水区，快来争做灌水大王！</p>
+                  )}
                 </div>
                 <button className="solidButton" disabled={loading}>
                   <Send size={17} />

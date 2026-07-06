@@ -364,6 +364,18 @@ button {
   font-size: 13px;
 }
 
+.cardTopMeta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.waterAuthorTop {
+  color: rgba(45, 64, 81, 0.82);
+}
+
 .cardTopline span,
 .pillInfo,
 .authorChip {
@@ -599,6 +611,22 @@ textarea:focus {
 .composer {
   display: grid;
   gap: 18px;
+}
+
+.composeHint {
+  max-width: 520px;
+  margin: 8px 0 0;
+  color: rgba(82, 96, 109, 0.58);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.7;
+  filter: blur(0.12px);
+}
+
+.composeBackButton {
+  justify-self: start;
+  width: fit-content;
+  margin-bottom: -4px;
 }
 
 label {
@@ -936,32 +964,26 @@ body {
 
 .typewriterCursor {
   display: inline-block;
-  width: 0.055em;
+  width: 0.08em;
   height: 0.88em;
   margin-left: 0.075em;
   border-radius: 999px;
   background: currentColor;
   transform: translateY(0.08em);
-  animation: typewriterCursorBlink 0.72s step-end infinite;
-}
-
-.typewriterTitle.cursorDone .typewriterCursor {
-  animation: typewriterCursorFade 0.48s ease forwards;
+  animation: typewriterCursorBlink 0.86s ease-in-out infinite;
 }
 
 @keyframes typewriterCursorBlink {
-  0%, 48% {
+  0%, 100% {
     opacity: 1;
   }
 
-  49%, 100% {
-    opacity: 0.18;
+  42% {
+    opacity: 0.38;
   }
-}
 
-@keyframes typewriterCursorFade {
-  to {
-    opacity: 0;
+  68% {
+    opacity: 0.74;
   }
 }
 

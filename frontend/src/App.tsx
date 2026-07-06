@@ -355,7 +355,7 @@ function App() {
             {recentWaterPosts.map((post) => (
               <button type="button" key={post.id} className="categoryPreviewItem" onClick={() => openPost(post.id)}>
                 <span>{post.title}</span>
-                <small>{post.author.username} · {formatDate(post.updated_at)}</small>
+                <small>@{post.author.username} · {formatDate(post.updated_at)}</small>
               </button>
             ))}
           </div>

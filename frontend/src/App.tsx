@@ -355,7 +355,7 @@ function App() {
             {recentWaterPosts.map((post) => (
               <button type="button" key={post.id} className="categoryPreviewItem" onClick={() => openPost(post.id)}>
                 <span>{post.title}</span>
-                <small>{formatDate(post.updated_at)}</small>
+                <small>{post.author.username} · {formatDate(post.updated_at)}</small>
               </button>
             ))}
           </div>
@@ -577,10 +577,7 @@ function App() {
           <span>{post.mood}</span>
           <div className="cardTopMeta">
             {variant === "water" && (
-              <span className="waterAuthorTop">
-                <UserRound size={13} />
-                @{post.author.username}
-              </span>
+              <span className="waterAuthorTop">{post.author.username}</span>
             )}
             <time>{formatDate(post.updated_at)}</time>
           </div>
@@ -914,6 +911,7 @@ function App() {
                   返回主页
                 </button>
                 <span>{activePost.mood}</span>
+                <span>{activePost.author.username}</span>
                 <time>{formatDate(activePost.updated_at)}</time>
               </div>
               <h1>{activePost.title}</h1>

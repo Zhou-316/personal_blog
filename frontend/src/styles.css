@@ -390,6 +390,15 @@ button {
   font-weight: 700;
 }
 
+.cardTopMeta .waterAuthorTop {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
 .cardTitle {
   margin: 24px 0 12px;
   padding: 0;

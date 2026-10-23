@@ -1,0 +1,9 @@
+{
+  "name": "blog-netease-service",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Private NetEase adapter for the blog; listens on loopback only",
+  "scripts": { "start": "node server.cjs", "test": "node --test qr-auth.test.cjs" },
+  "engines": { "node": ">=22" },
+  "dependencies": { "@neteasecloudmusicapienhanced/api": "4.41.1" }
+}

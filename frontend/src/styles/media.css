@@ -1,0 +1,54 @@
+.editorField { min-width: 0; }
+.editorToolbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; border-radius: 14px 14px 0 0; background: #f1f5f8; }
+.mediaIconButton { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 44px; height: 44px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--ink); cursor: pointer; }
+.mediaIconButton:hover { background: #e0eaf0; }
+.mediaIconButton:focus-visible, .musicPlayButton:focus-visible, .composeMobileTabs button:focus-visible { outline: 3px solid #527e9e; outline-offset: 2px; }
+.mediaIconButton:disabled { opacity: .5; cursor: wait; }
+.editorToolbarLabel { margin-left: auto; padding: 0 4px; font-size: 12px; color: var(--soft-ink); }
+.editorField .editorArea { display: block; width: 100%; border-radius: 0 0 14px 14px; resize: vertical; }
+.editorArea.dragging { outline: 3px solid #6e99ad; outline-offset: 2px; background: #eaf2f7; }
+.editorMediaHint { margin: 10px 2px 0; color: var(--soft-ink); font-size: 12px; line-height: 1.8; }
+.composeMobileTabs { display: none; }
+.mediaModal { width: min(480px, 100%); max-height: calc(100dvh - 40px); overflow: auto; overscroll-behavior: contain; padding: 26px; border: 1px solid rgba(255,255,255,.8); border-radius: 22px; background: #f8fafc; color: var(--ink); box-shadow: 0 24px 80px #112b4540; }
+.mediaModalHeading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.mediaModalHeading h2 { margin: 0; font-size: 21px; }
+.mediaHelp { margin: 0 0 22px; color: var(--soft-ink); font-size: 14px; line-height: 1.8; }
+.mediaModal textarea { width: 100%; font-size: 16px; resize: vertical; }
+.mediaDialogActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 20px; }
+.mediaError { margin: 12px 0 0; color: #a13a3a; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.mediaStatus { display: flex; gap: 10px; align-items: center; color: var(--soft-ink); }
+.musicPlayer { margin: 22px 0 28px; padding: 18px; border: 1px solid #cfdce6; border-radius: 18px; background: linear-gradient(125deg, #f0f5f9, #f9fbfd); color: var(--ink); }
+.musicPlayerMain { display: flex; gap: 13px; align-items: center; }
+.musicCover { width: 58px; height: 58px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 12px; background: #dce8ef; color: #577b94; overflow: hidden; }
+.musicCover img { width: 100%; height: 100%; object-fit: cover; }
+.musicTrack { min-width: 0; flex: 1; display: grid; gap: 5px; }
+.musicTrack strong { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.musicTrack span { font-size: 12px; color: var(--soft-ink); overflow-wrap: anywhere; }
+.musicPlayButton { width: 44px; height: 44px; border: 0; border-radius: 50%; display: grid; place-items: center; background: #345972; color: white; flex: 0 0 auto; cursor: pointer; }
+.musicPlayButton:disabled { opacity: .6; }
+.musicProgress { margin-top: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--soft-ink); font-variant-numeric: tabular-nums; }
+.musicProgress input[type="range"] { flex: 1; min-width: 0; height: 28px; margin: 0; padding: 0; border: 0; box-shadow: none; accent-color: #527e9e; background: transparent; }
+.musicPlayerFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-top: 2px; }
+.musicPlayerFooter small { color: var(--soft-ink); font-size: 11px; }
+.musicPlayerFooter .textButton { min-height: 36px; font-size: 12px; }
+.musicPlayer audio { display: none; }
+.musicQr, .musicAccount { display: grid; justify-items: center; gap: 14px; margin-bottom: 20px; text-align: center; }
+.musicQr img { width: 220px; max-width: 100%; height: auto; border-radius: 12px; }
+.musicQr img.expired { opacity: .25; }
+.musicQr p, .musicAccount p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--soft-ink); }
+.musicQr a { font-size: 14px; color: #345972; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 980px) {
+  .app[data-screen="compose"] > .notice { top: auto; bottom: calc(16px + env(safe-area-inset-bottom)); left: auto; right: 16px; width: fit-content; max-width: calc(100% - 32px); }
+  .composeMobileTabs { display: flex; position: sticky; top: 180px; z-index: 5; gap: 4px; padding: 5px; border: 1px solid #d1dce5; border-radius: 14px; background: #eff4f8; }
+  .composeMobileTabs button { display: flex; align-items: center; justify-content: center; gap: 7px; flex: 1; min-height: 44px; border: 0; border-radius: 10px; color: var(--soft-ink); background: transparent; cursor: pointer; }
+  .composeMobileTabs button[aria-selected="true"] { color: #2f536c; background: #fff; box-shadow: 0 2px 8px #213c5010; }
+  .composeTab-edit > .previewPane, .composeTab-preview > .composer { display: none; }
+  .editorField .editorArea { font-size: 16px; }
+}
+@media (max-width: 620px) {
+  .composeMobileTabs { top: 132px; }
+  .mediaModal { padding: 20px; border-radius: 18px; }
+  .editorToolbarLabel { font-size: 11px; }
+  .musicPlayer { padding: 14px; }
+  .musicCover { width: 48px; height: 48px; }
+}

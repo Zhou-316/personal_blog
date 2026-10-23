@@ -1,10 +1,30 @@
-import type { AiSummaryResponse, AuthResponse, CommentItem, Post, PostInput, User } from "./types";
+import type {
+  AiSummaryResponse,
+  AuthResponse,
+  CommentItem,
+  DirectMessage,
+  MessageThread,
+  MessageThreadDetail,
+  Post,
+  PostInput,
+  UploadResponse,
+  User,
+  UserCenter
+} from "./types";
+import type { MusicQr, MusicQrStatus, MusicSession, MusicSong } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
 
 type RequestOptions = RequestInit & {
   token?: string | null;
 };
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public code?: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
@@ -26,7 +46,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   const data = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(data?.detail ?? "请求失败");
+    const detail = data?.detail;
+    throw new ApiError(typeof detail === "string" ? detail : detail?.message ?? "请求失败", response.status, detail?.code);
   }
   return data as T;
 }
@@ -46,6 +67,19 @@ export const api = {
   },
   me(token: string) {
     return request<User>("/users/me", { token });
+  },
+  users(token: string) {
+    return request<User[]>("/users", { token });
+  },
+  userCenter(token: string) {
+    return request<UserCenter>("/users/me/center", { token });
+  },
+  markNotificationsRead(token: string) {
+    return request<{ unread_comment_count: number; unread_message_count: number }>("/users/me/notifications/read", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ type: "comment" })
+    });
   },
   posts(query: string, token?: string | null) {
     const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
@@ -106,7 +140,44 @@ export const api = {
       method: "POST",
       token
     });
+  },
+  messageThreads(token: string) {
+    return request<MessageThread[]>("/messages/threads", { token });
+  },
+  messageThread(userId: number, token: string) {
+    return request<MessageThreadDetail>(`/messages/threads/${userId}`, { token });
+  },
+  sendMessage(recipientId: number, content: string, token: string) {
+    return request<DirectMessage>("/messages", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ recipient_id: recipientId, content })
+    });
+  },
+  uploadImage(file: File, token: string) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<UploadResponse>("/upload", {
+      method: "POST",
+      token,
+      body: formData
+    });
   }
+};
+
+const musicOptions = { credentials: "include" as const, headers: { "X-Music-Request": "1" } };
+export const musicApi = {
+  resolve(link: string) {
+    return request<MusicSong>("/music/resolve", { ...musicOptions, method: "POST", body: JSON.stringify({ link }) });
+  },
+  song(id: string) { return request<MusicSong>(`/music/songs/${id}`, musicOptions); },
+  play(id: string) {
+    return request<{ url: string; expires_in: number }>(`/music/songs/${id}/play`, { ...musicOptions, method: "POST" });
+  },
+  session() { return request<MusicSession>("/music/session", musicOptions); },
+  createQr() { return request<MusicQr>("/music/auth/qr", { ...musicOptions, method: "POST" }); },
+  checkQr() { return request<MusicQrStatus>("/music/auth/qr/check", { ...musicOptions, method: "POST" }); },
+  logout() { return request<MusicSession>("/music/session", { ...musicOptions, method: "DELETE" }); }
 };
 
 

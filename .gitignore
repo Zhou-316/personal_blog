@@ -21,6 +21,13 @@ logs/
 # Local secrets and non-project source materials
 /api.md
 /.dist/
+/music-service/.runtime/
+/backend/uploads/
+/服务器.md
+/验收视频.mp4
+# Keep local reference materials private; retain the relocated project roadmap.
+/requirement/*
+!/requirement/可选拓展功能记录.md
 *.tsbuildinfo
 /e6a761e38562f7d1cd512bce66c0faa9.jpg
 /图标.jpg

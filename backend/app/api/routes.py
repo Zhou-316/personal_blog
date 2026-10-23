@@ -4,18 +4,27 @@ import json
 import os
 import re
 import sqlite3
+import secrets
+from io import BytesIO
 from pathlib import Path
 from typing import Annotated
 from urllib import error, request
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, field_validator
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db.database import get_connection, now_iso
 
 
 router = APIRouter(prefix="/api")
+UPLOADS_DIR = Path(os.getenv("BLOG_UPLOADS_DIR", "/srv/blog/data/uploads"))
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+register_heif_opener()
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".webp", ".svg"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 OWNER_CATEGORIES = ("小说随笔", "旅行日记", "技术笔记", "课程笔记与资料")
 
@@ -75,6 +84,15 @@ class PostUpdate(BaseModel):
 
 
 class CommentCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=800)
+
+
+class NotificationReadRequest(BaseModel):
+    type: str = Field(default="comment")
+
+
+class DirectMessageCreate(BaseModel):
+    recipient_id: int
     content: str = Field(min_length=1, max_length=800)
 
 
@@ -204,6 +222,60 @@ def build_comment_payload(conn: sqlite3.Connection, row: sqlite3.Row, viewer_id:
     }
 
 
+def unread_message_count(conn: sqlite3.Connection, user_id: int) -> int:
+    return conn.execute(
+        """
+        SELECT COUNT(*) FROM direct_messages
+        WHERE recipient_id = ? AND read_at IS NULL
+        """,
+        (user_id,),
+    ).fetchone()[0]
+
+
+def unread_comment_count(conn: sqlite3.Connection, user_id: int) -> int:
+    return conn.execute(
+        """
+        SELECT COUNT(*) FROM notifications
+        WHERE user_id = ? AND type = 'comment' AND read_at IS NULL
+        """,
+        (user_id,),
+    ).fetchone()[0]
+
+
+def build_message_payload(conn: sqlite3.Connection, row: sqlite3.Row, viewer_id: int) -> dict:
+    sender = conn.execute("SELECT * FROM users WHERE id = ?", (row["sender_id"],)).fetchone()
+    recipient = conn.execute("SELECT * FROM users WHERE id = ?", (row["recipient_id"],)).fetchone()
+    return {
+        "id": row["id"],
+        "content": row["content"],
+        "sender": row_to_user(sender).model_dump(),
+        "recipient": row_to_user(recipient).model_dump(),
+        "created_at": row["created_at"],
+        "read": row["read_at"] is not None or row["sender_id"] == viewer_id,
+        "mine": row["sender_id"] == viewer_id,
+    }
+
+
+def build_comment_notification_payload(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
+    actor = conn.execute("SELECT * FROM users WHERE id = ?", (row["actor_id"],)).fetchone()
+    comment = conn.execute("SELECT * FROM comments WHERE id = ?", (row["comment_id"],)).fetchone()
+    post = conn.execute("SELECT * FROM posts WHERE id = ?", (row["post_id"],)).fetchone()
+    if not actor or not comment or not post:
+        return {}
+    return {
+        "id": row["id"],
+        "read": row["read_at"] is not None,
+        "created_at": row["created_at"],
+        "actor": row_to_user(actor).model_dump(),
+        "post": {"id": post["id"], "title": post["title"]},
+        "comment": {
+            "id": comment["id"],
+            "content": comment["content"],
+            "created_at": comment["created_at"],
+        },
+    }
+
+
 
 def read_ai_config() -> tuple[str, str, str]:
     raw = API_DOC_PATH.read_text(encoding="utf-8") if API_DOC_PATH.exists() else ""
@@ -296,6 +368,42 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/upload")
+def upload_image(
+    file: Annotated[UploadFile, File()],
+    user: Annotated[sqlite3.Row, Depends(require_user)],
+) -> dict:
+    ext = Path(file.filename or "image.png").suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=422, detail=f"不支持的图片格式: {ext}，支持: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=422, detail=f"图片大小不能超过 {MAX_UPLOAD_BYTES // (1024*1024)} MB")
+    if not content:
+        raise HTTPException(status_code=422, detail="图片文件为空")
+    if ext != ".svg":
+        try:
+            with Image.open(BytesIO(content)) as image:
+                image.verify()
+            if ext in {".heic", ".heif"}:
+                with Image.open(BytesIO(content)) as image:
+                    output = BytesIO()
+                    ImageOps.exif_transpose(image).convert("RGB").save(output, "JPEG", quality=90)
+                    content = output.getvalue()
+                    ext = ".jpg"
+        except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+            raise HTTPException(status_code=422, detail="无法读取图片，请检查文件是否损坏或重新导出后上传")
+    for _ in range(5):
+        filename = f"image_{secrets.randbelow(10**12):012d}{ext}"
+        try:
+            with (UPLOADS_DIR / filename).open("xb") as dest:
+                dest.write(content)
+            return {"url": f"/uploads/{filename}", "filename": filename}
+        except FileExistsError:
+            continue
+    raise HTTPException(status_code=503, detail="图片保存繁忙，请稍后重试")
+
+
 @router.post("/auth/register", response_model=AuthResponse)
 def register(payload: RegisterRequest) -> AuthResponse:
     timestamp = now_iso()
@@ -329,6 +437,174 @@ def me(user: Annotated[sqlite3.Row, Depends(require_user)]) -> UserPublic:
     return row_to_user(user)
 
 
+@router.get("/users")
+def list_users(user: Annotated[sqlite3.Row, Depends(require_user)]) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM users
+            WHERE id != ?
+            ORDER BY role = 'admin' DESC, username ASC
+            """,
+            (user["id"],),
+        ).fetchall()
+        return [row_to_user(row).model_dump() for row in rows]
+
+
+@router.get("/users/me/center")
+def user_center(user: Annotated[sqlite3.Row, Depends(require_user)]) -> dict:
+    with get_connection() as conn:
+        post_rows = conn.execute(
+            """
+            SELECT * FROM posts
+            WHERE author_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (user["id"],),
+        ).fetchall()
+        notification_rows = conn.execute(
+            """
+            SELECT * FROM notifications
+            WHERE user_id = ? AND type = 'comment'
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (user["id"],),
+        ).fetchall()
+        notifications = [
+            item
+            for item in (build_comment_notification_payload(conn, row) for row in notification_rows)
+            if item
+        ]
+        return {
+            "user": row_to_user(user).model_dump(),
+            "posts": [build_post_payload(conn, row, user["id"]) for row in post_rows],
+            "comment_notifications": notifications,
+            "unread_comment_count": unread_comment_count(conn, user["id"]),
+            "unread_message_count": unread_message_count(conn, user["id"]),
+        }
+
+
+@router.post("/users/me/notifications/read")
+def mark_notifications_read(
+    payload: NotificationReadRequest,
+    user: Annotated[sqlite3.Row, Depends(require_user)],
+) -> dict:
+    if payload.type != "comment":
+        raise HTTPException(status_code=422, detail="暂不支持的通知类型")
+    timestamp = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE notifications
+            SET read_at = ?
+            WHERE user_id = ? AND type = 'comment' AND read_at IS NULL
+            """,
+            (timestamp, user["id"]),
+        )
+        return {
+            "unread_comment_count": unread_comment_count(conn, user["id"]),
+            "unread_message_count": unread_message_count(conn, user["id"]),
+        }
+
+
+@router.get("/messages/threads")
+def list_message_threads(user: Annotated[sqlite3.Row, Depends(require_user)]) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM direct_messages
+            WHERE sender_id = ? OR recipient_id = ?
+            ORDER BY created_at DESC
+            """,
+            (user["id"], user["id"]),
+        ).fetchall()
+        threads: list[dict] = []
+        seen: set[int] = set()
+        for row in rows:
+            other_id = row["recipient_id"] if row["sender_id"] == user["id"] else row["sender_id"]
+            if other_id in seen:
+                continue
+            other = conn.execute("SELECT * FROM users WHERE id = ?", (other_id,)).fetchone()
+            if not other:
+                continue
+            unread = conn.execute(
+                """
+                SELECT COUNT(*) FROM direct_messages
+                WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL
+                """,
+                (other_id, user["id"]),
+            ).fetchone()[0]
+            threads.append(
+                {
+                    "user": row_to_user(other).model_dump(),
+                    "last_message": build_message_payload(conn, row, user["id"]),
+                    "unread_count": unread,
+                }
+            )
+            seen.add(other_id)
+        return threads
+
+
+@router.get("/messages/threads/{other_user_id}")
+def get_message_thread(
+    other_user_id: int,
+    user: Annotated[sqlite3.Row, Depends(require_user)],
+) -> dict:
+    if other_user_id == user["id"]:
+        raise HTTPException(status_code=422, detail="不能给自己发送云朵消息")
+    timestamp = now_iso()
+    with get_connection() as conn:
+        other = conn.execute("SELECT * FROM users WHERE id = ?", (other_user_id,)).fetchone()
+        if not other:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        conn.execute(
+            """
+            UPDATE direct_messages
+            SET read_at = ?
+            WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL
+            """,
+            (timestamp, other_user_id, user["id"]),
+        )
+        rows = conn.execute(
+            """
+            SELECT * FROM direct_messages
+            WHERE (sender_id = ? AND recipient_id = ?)
+               OR (sender_id = ? AND recipient_id = ?)
+            ORDER BY created_at ASC
+            """,
+            (user["id"], other_user_id, other_user_id, user["id"]),
+        ).fetchall()
+        return {
+            "user": row_to_user(other).model_dump(),
+            "messages": [build_message_payload(conn, row, user["id"]) for row in rows],
+            "unread_message_count": unread_message_count(conn, user["id"]),
+        }
+
+
+@router.post("/messages", status_code=201)
+def create_direct_message(
+    payload: DirectMessageCreate,
+    user: Annotated[sqlite3.Row, Depends(require_user)],
+) -> dict:
+    if payload.recipient_id == user["id"]:
+        raise HTTPException(status_code=422, detail="不能给自己发送云朵消息")
+    timestamp = now_iso()
+    with get_connection() as conn:
+        recipient = conn.execute("SELECT * FROM users WHERE id = ?", (payload.recipient_id,)).fetchone()
+        if not recipient:
+            raise HTTPException(status_code=404, detail="收信人不存在")
+        cursor = conn.execute(
+            """
+            INSERT INTO direct_messages (sender_id, recipient_id, content, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user["id"], payload.recipient_id, payload.content.strip(), timestamp),
+        )
+        row = conn.execute("SELECT * FROM direct_messages WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return build_message_payload(conn, row, user["id"])
+
+
 @router.get("/posts")
 def list_posts(
     q: Annotated[str | None, Query(max_length=80)] = None,
@@ -353,10 +629,19 @@ def list_posts(
         return [build_post_payload(conn, row, viewer_id) for row in rows]
 
 
+def content_excerpt(content: str) -> str:
+    text = content.strip()
+    text = re.sub(r'^\[网易云音乐\]\(https://music\.163\.com/song\?id=\d+ "blog-music"\)\s*', "", text)
+    text = re.sub(r"!\[[^\]\n]*\]\([^\n)]*\)", "", text)
+    text = re.sub(r"<!--[\s\S]*?-->", "", text)
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", text)
+    return re.sub(r"\s+", " ", text).strip()[:120]
+
+
 @router.post("/posts", status_code=201)
 def create_post(payload: PostCreate, user: Annotated[sqlite3.Row, Depends(require_user)]) -> dict:
     timestamp = now_iso()
-    excerpt = payload.excerpt.strip() or payload.content.strip().replace("\n", " ")[:120]
+    excerpt = payload.excerpt.strip() or content_excerpt(payload.content)
     category = category_for_user(payload.category, user)
     with get_connection() as conn:
         cursor = conn.execute(
@@ -409,7 +694,7 @@ def update_post(post_id: int, payload: PostUpdate, user: Annotated[sqlite3.Row, 
         if row["author_id"] != user["id"]:
             raise HTTPException(status_code=403, detail="只能编辑自己的文章")
 
-        excerpt = payload.excerpt.strip() or payload.content.strip().replace("\n", " ")[:120]
+        excerpt = payload.excerpt.strip() or content_excerpt(payload.content)
         category = category_for_user(payload.category, user)
         conn.execute(
             """
@@ -483,7 +768,7 @@ def create_comment(
     user: Annotated[sqlite3.Row, Depends(require_user)],
 ) -> dict:
     with get_connection() as conn:
-        post = conn.execute("SELECT id FROM posts WHERE id = ?", (post_id,)).fetchone()
+        post = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
         if not post:
             raise HTTPException(status_code=404, detail="文章不存在")
         cursor = conn.execute(
@@ -494,6 +779,14 @@ def create_comment(
             (post_id, user["id"], payload.content.strip(), now_iso()),
         )
         row = conn.execute("SELECT * FROM comments WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        if post["author_id"] != user["id"]:
+            conn.execute(
+                """
+                INSERT INTO notifications (user_id, actor_id, type, post_id, comment_id, created_at)
+                VALUES (?, ?, 'comment', ?, ?, ?)
+                """,
+                (post["author_id"], user["id"], post_id, row["id"], row["created_at"]),
+            )
         return build_comment_payload(conn, row, user["id"])
 
 

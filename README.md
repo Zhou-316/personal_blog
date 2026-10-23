@@ -13,6 +13,10 @@
 
 ## 本地运行
 
+液态玻璃 UI 的独立本地验收环境、测试账号和检查记录见 [本地验收说明](docs/local-acceptance.md)。在项目根目录执行 `./start-local-acceptance.ps1`，默认前端端口为 5174、后端为 8001。
+
+图片拖入、HEIC 转换和网易云文章配乐的使用及部署见 [编辑器更新说明](docs/editor-media-update.md)。验收音乐功能时使用 `./start-local-acceptance.ps1 -WithMusic`；新增 Node.js 服务也需要安装依赖并保持运行。
+
 当前机器的 `python -m venv` 在 `ensurepip` 阶段会失败，所以后端依赖已安装到项目内 `backend/.python_packages`。可以直接使用下面的脚本启动。
 
 ### 后端
@@ -43,10 +47,10 @@ npm install
 
 前端地址：`http://127.0.0.1:5173`
 
-本地前端通过 `frontend/.env.development` 请求 `http://127.0.0.1:8000/api`。如需覆盖，设置 `frontend/.env.local`：
+本地前端通过同源 `/api` 代理请求后端，Vite 默认代理到 `http://127.0.0.1:8000`。如需覆盖后端端口，设置 `BLOG_DEV_API_TARGET`；`frontend/.env.local` 中的 API 前缀保持为：
 
 ```env
-VITE_API_BASE_URL=http://127.0.0.1:8000/api
+VITE_API_BASE_URL=/api
 ```
 
 ## 演示账号
@@ -59,6 +63,8 @@ VITE_API_BASE_URL=http://127.0.0.1:8000/api
 也可以直接在页面注册新账号。
 
 ## 部署到 Vercel + Render
+
+以下为原有前后端分离部署方式。新增音乐授权功能需要同源 `/api` 和 `/uploads` 代理，以及额外运行的 Node.js 音乐服务；请同时参考 [编辑器更新说明](docs/editor-media-update.md) 配置，跨站 API 地址不能直接保留浏览器音乐登录状态。
 
 本项目保持前后端分离：
 
@@ -122,4 +128,4 @@ CORS_ORIGINS=https://你的-vercel域名.vercel.app,https://你的自定义域�
 
 - 这是可本地运行并可部署到 Vercel + Render 的版本。
 - 后端数据库仍使用 SQLite；线上通过 Render Persistent Disk 保持数据持久化。
-- 可选 / 拓展功能已记录在 `可选拓展功能记录.md`，基础功能稳定后再挑选 1-2 个实现。
+- 可选 / 拓展功能已记录在 [可选拓展功能记录](requirement/可选拓展功能记录.md)，基础功能稳定后再挑选 1-2 个实现。

@@ -48,3 +48,72 @@ export type PostInput = {
 export type AiSummaryResponse = {
   summary: string;
 };
+
+export type CommentNotification = {
+  id: number;
+  read: boolean;
+  created_at: string;
+  actor: User;
+  post: {
+    id: number;
+    title: string;
+  };
+  comment: {
+    id: number;
+    content: string;
+    created_at: string;
+  };
+};
+
+export type UserCenter = {
+  user: User;
+  posts: Post[];
+  comment_notifications: CommentNotification[];
+  unread_comment_count: number;
+  unread_message_count: number;
+};
+
+export type DirectMessage = {
+  id: number;
+  content: string;
+  sender: User;
+  recipient: User;
+  created_at: string;
+  read: boolean;
+  mine: boolean;
+};
+
+export type MessageThread = {
+  user: User;
+  last_message: DirectMessage;
+  unread_count: number;
+};
+
+export type MessageThreadDetail = {
+  user: User;
+  messages: DirectMessage[];
+  unread_message_count: number;
+};
+
+export type UploadResponse = {
+  url: string;
+  filename: string;
+};
+
+export type MusicSong = {
+  id: string;
+  title: string;
+  artist: string;
+  cover: string;
+  duration: number;
+  fee: number;
+};
+export type MusicSession = {
+  logged_in: boolean;
+  profile?: { nickname: string; vip: boolean } | null;
+};
+export type MusicQr = { image: string; url: string; expires_in: number };
+export type MusicQrStatus = {
+  status: "waiting" | "confirming" | "authorizing" | "expired" | "authorized" | "superseded";
+  profile?: MusicSession["profile"];
+};

@@ -2,32 +2,43 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  Bell,
   BookOpen,
   Check,
+  Cloud,
   Edit3,
-  Feather,
   Flame,
   Heart,
-  ImagePlus,
+  Inbox,
   Leaf,
+  Loader2,
   LogIn,
   LogOut,
+  Mail,
   MessageCircle,
+  Music2,
   PenLine,
   Plus,
   Search,
   Send,
+  Settings,
   Sparkles,
   Trash2,
   UserRound,
   X
 } from "lucide-react";
 import { api } from "./api";
-import type { AuthResponse, CommentItem, Post, PostInput, User } from "./types";
+import { ArticleContent } from "./components/ArticleContent";
+import { AddMusicDialog } from "./components/AddMusicDialog";
+import { splitArticleMusic, withArticleMusic } from "./lib/articleMusic";
+import { GlassBackdrop } from "./components/glass/GlassBackdrop";
+import { useGlassCapabilities } from "./hooks/useGlassCapabilities";
+import type { AuthResponse, CommentItem, DirectMessage, MessageThread, Post, PostInput, User, UserCenter } from "./types";
 
-type Screen = "home" | "detail" | "compose" | "category" | "water";
+type Screen = "home" | "detail" | "compose" | "category" | "water" | "profile";
 type OwnerCategory = "小说随笔" | "旅行日记" | "技术笔记" | "课程笔记与资料";
 type AuthMode = "login" | "register";
+type ProfileTab = "posts" | "messages" | "info";
 const heroTitle = "云山苍苍，江水泱泱";
 const heroTitleChars = Array.from(heroTitle);
 const ownerCategories: Array<{ name: OwnerCategory; subtitle: string; description: string }> = [
@@ -55,6 +66,7 @@ function formatDate(value: string) {
 }
 
 function App() {
+  const { enabled: glassEnabled, canAnimate, reducedMotion, toggle: toggleGlass } = useGlassCapabilities();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("blog_token"));
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -75,27 +87,26 @@ function App() {
   const [summaryText, setSummaryText] = useState("");
   const [summaryError, setSummaryError] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [imageUrl, setImageUrl] = useState("");
-  const [imageAlt, setImageAlt] = useState("");
+  const [imageUploading, setImageUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const imageFileRef = useRef<HTMLInputElement | null>(null);
+  const [composeTab, setComposeTab] = useState<"edit" | "preview">("edit");
+  const [musicDialogOpen, setMusicDialogOpen] = useState(false);
+  const uploadLock = useRef(false);
+  const composeGeneration = useRef(0);
+  const [profileTab, setProfileTab] = useState<ProfileTab>("posts");
+  const [profileData, setProfileData] = useState<UserCenter | null>(null);
+  const [messageUsers, setMessageUsers] = useState<User[]>([]);
+  const [messageThreads, setMessageThreads] = useState<MessageThread[]>([]);
+  const [activeMessageUser, setActiveMessageUser] = useState<User | null>(null);
+  const [activeMessages, setActiveMessages] = useState<DirectMessage[]>([]);
+  const [messageText, setMessageText] = useState("");
+  const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [heroTypedCount, setHeroTypedCount] = useState(0);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   const ownerPosts = useMemo(() => posts.filter((post) => post.author.role === "admin"), [posts]);
   const waterPosts = useMemo(() => posts.filter((post) => post.author.role !== "admin"), [posts]);
-  const featured = ownerPosts[0] ?? posts[0];
-  const stats = useMemo(() => {
-    const likes = posts.reduce((sum, post) => sum + post.like_count, 0);
-    const commentsTotal = posts.reduce((sum, post) => sum + post.comment_count, 0);
-    return {
-      posts: posts.length,
-      owner: ownerPosts.length,
-      water: waterPosts.length,
-      likes,
-      comments: commentsTotal
-    };
-  }, [ownerPosts.length, posts, waterPosts.length]);
-
-
   const activeCategoryMeta = useMemo(
     () => ownerCategories.find((category) => category.name === activeCategory) ?? ownerCategories[0],
     [activeCategory]
@@ -129,6 +140,9 @@ function App() {
       .slice(0, 8);
   }, [normalizedQuery, posts]);
   const showSearchResults = searchFocused && normalizedQuery.length > 0;
+  const unreadCommentCount = profileData?.unread_comment_count ?? 0;
+  const unreadMessageCount = profileData?.unread_message_count ?? 0;
+  const profileUnreadCount = unreadCommentCount + unreadMessageCount;
 
   async function loadPosts() {
     const data = await api.posts("", token);
@@ -138,14 +152,119 @@ function App() {
   async function loadMe(currentToken = token) {
     if (!currentToken) {
       setUser(null);
+      setProfileData(null);
+      setMessageUsers([]);
+      setMessageThreads([]);
+      setActiveMessageUser(null);
+      setActiveMessages([]);
       return;
     }
     try {
-      setUser(await api.me(currentToken));
+      const currentUser = await api.me(currentToken);
+      setUser(currentUser);
+      setProfileData(await api.userCenter(currentToken));
     } catch {
       localStorage.removeItem("blog_token");
       setToken(null);
       setUser(null);
+      setProfileData(null);
+    }
+  }
+
+  async function refreshProfileData(currentToken = token) {
+    if (!currentToken) return null;
+    const data = await api.userCenter(currentToken);
+    setProfileData(data);
+    return data;
+  }
+
+  async function refreshMessageMeta(currentToken = token) {
+    if (!currentToken) return;
+    const [usersData, threadData] = await Promise.all([
+      api.users(currentToken),
+      api.messageThreads(currentToken)
+    ]);
+    setMessageUsers(usersData);
+    setMessageThreads(threadData);
+    if (!selectedRecipientId && usersData[0]) {
+      setSelectedRecipientId(String(usersData[0].id));
+    }
+  }
+
+  async function markCommentNotificationsRead() {
+    if (!token) return;
+    const counts = await api.markNotificationsRead(token);
+    setProfileData((current) =>
+      current
+        ? {
+            ...current,
+            comment_notifications: current.comment_notifications.map((item) => ({ ...item, read: true })),
+            unread_comment_count: counts.unread_comment_count,
+            unread_message_count: counts.unread_message_count
+          }
+        : current
+    );
+  }
+
+  async function openProfile(tab: ProfileTab = "posts") {
+    if (!requireLogin()) return;
+    setProfileTab(tab);
+    setScreen("profile");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (!token) return;
+    try {
+      await Promise.all([refreshProfileData(token), refreshMessageMeta(token)]);
+      if (tab === "posts") {
+        await markCommentNotificationsRead();
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "个人中心加载失败");
+    }
+  }
+
+  async function switchProfileTab(tab: ProfileTab) {
+    setProfileTab(tab);
+    if (tab === "posts") {
+      markCommentNotificationsRead().catch((error) =>
+        setNotice(error instanceof Error ? error.message : "通知更新失败")
+      );
+    }
+    if (tab === "messages") {
+      refreshMessageMeta().catch((error) => setNotice(error instanceof Error ? error.message : "私信加载失败"));
+    }
+  }
+
+  async function openMessageThread(userId: number) {
+    if (!token) return;
+    try {
+      const detail = await api.messageThread(userId, token);
+      setActiveMessageUser(detail.user);
+      setActiveMessages(detail.messages);
+      setSelectedRecipientId(String(detail.user.id));
+      setProfileData((current) =>
+        current ? { ...current, unread_message_count: detail.unread_message_count } : current
+      );
+      await refreshMessageMeta(token);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "云朵消息加载失败");
+    }
+  }
+
+  async function sendCloudMessage(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !messageText.trim()) return;
+    const recipientId = activeMessageUser?.id ?? Number(selectedRecipientId);
+    if (!recipientId) {
+      setNotice("请选择收信人");
+      return;
+    }
+    try {
+      await api.sendMessage(recipientId, messageText, token);
+      setMessageText("");
+      await openMessageThread(recipientId);
+      await refreshProfileData(token);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "云朵消息发送失败");
     }
   }
 
@@ -182,6 +301,11 @@ function App() {
 
   function startCompose(post?: Post) {
     if (!requireLogin()) return;
+    composeGeneration.current++;
+    uploadLock.current = false;
+    setImageUploading(false);
+    setComposeTab("edit");
+    setMusicDialogOpen(false);
     if (post) {
       setEditingId(post.id);
       setDraft({
@@ -252,6 +376,7 @@ function App() {
 
   async function savePost(event: FormEvent) {
     event.preventDefault();
+    if (uploadLock.current) { setNotice("请等待图片上传完成后再保存"); return; }
     if (!token || !requireLogin()) return;
     setLoading(true);
     setNotice("");
@@ -532,30 +657,72 @@ function App() {
       </section>
     );
   }
-  function insertImageMarkdown() {
-    const url = imageUrl.trim();
-    if (!url) {
-      setNotice("请先填写图片地址");
-      return;
-    }
-
-    const alt = imageAlt.trim() || "插图";
-    const snippet = `\n\n![${alt}](${url})\n\n`;
+  async function uploadImageFiles(files: File[]) {
+    if (!token || !requireLogin() || uploadLock.current || files.length === 0) return;
+    const supported = files.filter((file) => /\.(jpe?g|png|heic|heif|gif|webp)$/i.test(file.name));
+    const valid = supported.filter((file) => file.size > 0 && file.size <= 10 * 1024 * 1024);
+    if (valid.length !== files.length) setNotice("仅上传有效的图片文件，每张不超过 10 MB；支持 JPG、PNG、HEIC。");
+    else setNotice("");
+    if (!valid.length) return;
+    uploadLock.current = true;
+    setImageUploading(true);
+    const generation = composeGeneration.current;
     const textarea = contentRef.current;
-    const start = textarea?.selectionStart ?? draft.content.length;
-    const end = textarea?.selectionEnd ?? draft.content.length;
-    const nextContent = `${draft.content.slice(0, start)}${snippet}${draft.content.slice(end)}`;
-
-    setDraft({ ...draft, content: nextContent });
-    setImageUrl("");
-    setImageAlt("");
-
+    const article = splitArticleMusic(draft.content);
+    const bodyStart = article.songId ? draft.content.length - article.body.length : 0;
+    const start = Math.max(bodyStart, textarea?.selectionStart ?? draft.content.length);
+    const end = Math.max(start, textarea?.selectionEnd ?? draft.content.length);
+    const numbers = Array.from(draft.content.matchAll(/!\[image_(\d+)\]/g), (match) => Number(match[1]));
+    const firstNumber = Math.max(0, ...numbers) + 1;
+    const pending = valid.map((_, index) => ({
+      marker: `<!-- image-upload:${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${index} -->`,
+      label: `image_${firstNumber + index}`
+    }));
+    const placeholders = `\n\n${pending.map((item) => item.marker).join("\n\n")}\n\n`;
+    setDraft((previous) => ({ ...previous, content: previous.content.slice(0, start) + placeholders + previous.content.slice(end) }));
     window.setTimeout(() => {
-      const cursor = start + snippet.length;
-      contentRef.current?.focus();
-      contentRef.current?.setSelectionRange(cursor, cursor);
+      if (generation === composeGeneration.current) {
+        contentRef.current?.focus();
+        contentRef.current?.setSelectionRange(start + placeholders.length, start + placeholders.length);
+      }
     }, 0);
+    try {
+      for (let index = 0; index < valid.length; index++) {
+        if (generation !== composeGeneration.current) break;
+        const { marker, label } = pending[index];
+        try {
+          const result = await api.uploadImage(valid[index], token);
+          if (generation === composeGeneration.current) setDraft((previous) => ({
+            ...previous, content: previous.content.replace(marker, `![${label}](${result.url})`)
+          }));
+        } catch (error) {
+          if (generation === composeGeneration.current) {
+            setDraft((previous) => ({ ...previous, content: previous.content.replace(marker, "") }));
+            setNotice(error instanceof Error ? error.message : "图片上传失败");
+          }
+        }
+      }
+    } finally {
+      if (generation === composeGeneration.current) {
+        uploadLock.current = false;
+        setImageUploading(false);
+        setDragOver(false);
+      }
+    }
   }
+
+  function handleImageDrop(event: React.DragEvent) {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    setDragOver(false);
+    void uploadImageFiles(Array.from(event.dataTransfer.files));
+  }
+
+  function handleImageFilePick(event: React.ChangeEvent<HTMLInputElement>) {
+    void uploadImageFiles(Array.from(event.target.files ?? []));
+    event.target.value = "";
+  }
+
   function renderPostCard(post: Post, variant: "cloud" | "water" = "water") {
     const adminPost = post.author.role === "admin";
     const open = () => openPost(post.id);
@@ -618,6 +785,303 @@ function App() {
       </article>
     );
   }
+
+  function renderProfilePosts() {
+    const myPosts = profileData?.posts ?? [];
+    const commentNotifications = profileData?.comment_notifications ?? [];
+
+    return (
+      <div className="profileContentGrid">
+        <section className="profileMainPanel">
+          <div className="sectionHeader compact profilePanelHeader">
+            <div>
+              <p className="eyebrow muted">
+                <Inbox size={15} />
+                My Posts
+              </p>
+              <h2>我的帖子</h2>
+            </div>
+            <span>{myPosts.length} 篇</span>
+          </div>
+          {myPosts.length > 0 ? (
+            <div className="postGrid profilePostGrid">
+              {myPosts.map((post) => renderPostCard(post, post.author.role === "admin" ? "cloud" : "water"))}
+            </div>
+          ) : (
+            <div className="profileEmpty">
+              <Cloud size={34} />
+              <p>还没有发过帖子。</p>
+              <button type="button" className="solidButton" onClick={() => startCompose()}>
+                <PenLine size={16} />
+                写札记
+              </button>
+            </div>
+          )}
+        </section>
+
+        <aside className="profileSidePanel">
+          <div className="sectionHeader compact profilePanelHeader">
+            <div>
+              <p className="eyebrow muted">
+                <Bell size={15} />
+                Echoes
+              </p>
+              <h2>收到评论</h2>
+            </div>
+          </div>
+          {commentNotifications.length > 0 ? (
+            <div className="profileNoticeList">
+              {commentNotifications.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={item.read ? "profileNotice" : "profileNotice unread"}
+                  onClick={() => openPost(item.post.id)}
+                >
+                  <span>
+                    <strong>{item.actor.username}</strong>
+                    评论了《{item.post.title}》
+                  </span>
+                  <small>{item.comment.content}</small>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="profileMiniEmpty">新的回声会落在这里。</div>
+          )}
+        </aside>
+      </div>
+    );
+  }
+
+  function renderProfileMessages() {
+    return (
+      <section className="cloudMessagePanel">
+        <aside className="threadListPanel">
+          <div className="threadPanelTitle">
+            <div>
+              <p className="eyebrow muted">
+                <Cloud size={15} />
+                Cloud Mail
+              </p>
+              <h2>云朵私信</h2>
+            </div>
+          </div>
+          <label className="newCloudSelect">
+            写给
+            <select
+              value={selectedRecipientId}
+              onChange={(event) => {
+                setSelectedRecipientId(event.target.value);
+                const nextId = Number(event.target.value);
+                if (nextId) openMessageThread(nextId);
+              }}
+            >
+              <option value="">选择一位用户</option>
+              {messageUsers.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.username}{item.role === "admin" ? "（站主）" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="threadList">
+            {messageThreads.length > 0 ? (
+              messageThreads.map((thread) => (
+                <button
+                  key={thread.user.id}
+                  type="button"
+                  className={activeMessageUser?.id === thread.user.id ? "threadItem active" : "threadItem"}
+                  onClick={() => openMessageThread(thread.user.id)}
+                >
+                  <span className="threadAvatar">{thread.user.username.slice(0, 1).toUpperCase()}</span>
+                  <span className="threadSummary">
+                    <strong>{thread.user.username}</strong>
+                    <small>{thread.last_message.content}</small>
+                  </span>
+                  {thread.unread_count > 0 && <span className="cloudUnread">{thread.unread_count}</span>}
+                </button>
+              ))
+            ) : (
+              <div className="profileMiniEmpty">还没有云朵消息。</div>
+            )}
+          </div>
+        </aside>
+
+        <div className="cloudChatPanel">
+          <div className="cloudChatHeader">
+            <div>
+              <p className="eyebrow muted">
+                <Mail size={15} />
+                Message
+              </p>
+              <h2>{activeMessageUser ? activeMessageUser.username : "选择一朵云"}</h2>
+            </div>
+          </div>
+          <div className="cloudMessageStream">
+            {activeMessageUser ? (
+              activeMessages.length > 0 ? (
+                activeMessages.map((message) => (
+                  <article
+                    key={message.id}
+                    className={message.mine ? "cloudBubble mine" : "cloudBubble"}
+                  >
+                    <div className="cloudBubbleBody">
+                      <p>{message.content}</p>
+                      <time>{formatDate(message.created_at)}</time>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="profileEmpty cloudEmpty">
+                  <Cloud size={36} />
+                  <p>给 {activeMessageUser.username} 发送第一朵云。</p>
+                </div>
+              )
+            ) : (
+              <div className="profileEmpty cloudEmpty">
+                <Cloud size={36} />
+                <p>从左侧选择用户，开始一段云朵消息。</p>
+              </div>
+            )}
+          </div>
+          <form className="cloudComposer" onSubmit={sendCloudMessage}>
+            <input
+              value={messageText}
+              onChange={(event) => setMessageText(event.target.value)}
+              placeholder={activeMessageUser ? `写给 ${activeMessageUser.username}` : "先选择收信人"}
+              disabled={!activeMessageUser && !selectedRecipientId}
+            />
+            <button className="solidButton" disabled={!messageText.trim() || (!activeMessageUser && !selectedRecipientId)}>
+              <Send size={16} />
+              发送
+            </button>
+          </form>
+        </div>
+      </section>
+    );
+  }
+
+  function renderProfileInfo() {
+    const joinedDays = user
+      ? Math.max(1, Math.ceil((Date.now() - new Date(user.created_at).getTime()) / 86400000))
+      : 0;
+
+    return (
+      <section className="profileInfoPanel">
+        <div className="profileAvatarLarge">{user?.username.slice(0, 1).toUpperCase()}</div>
+        <div className="profileInfoBody">
+          <p className="eyebrow muted">
+            <Settings size={15} />
+            Account
+          </p>
+          <h2>{user?.username}</h2>
+          <div className="profileInfoRows">
+            <span>邮箱</span>
+            <strong>{user?.email}</strong>
+            <span>身份</span>
+            <strong>{user?.role === "admin" ? "站主" : "普通用户"}</strong>
+            <span>来到云纸之上</span>
+            <strong>{joinedDays} 天</strong>
+            <span>个人简介</span>
+            <strong>{user?.bio || "还没有写下简介。"}</strong>
+          </div>
+          <div className="profileInfoActions">
+            <button type="button" className="ghostButton" onClick={() => setNotice("资料编辑将在下一轮开放")}>
+              <Edit3 size={16} />
+              编辑资料
+            </button>
+            <button type="button" className="iconTextButton" onClick={logout}>
+              <LogOut size={16} />
+              退出登录
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderProfileCenter() {
+    return (
+      <section className="profileShell">
+        <div className="profileHero">
+          <button className="textButton" onClick={() => goHome(true)}>
+            返回主页
+          </button>
+          <div className="profileHeroMain">
+            <div>
+              <p className="eyebrow muted">
+                <UserRound size={15} />
+                Personal Center
+              </p>
+              <h1>个人中心</h1>
+              <p>管理自己的帖子、云朵私信和个人信息。</p>
+            </div>
+            <div className="profileHeroBadge">
+              <span>{user?.username.slice(0, 1).toUpperCase()}</span>
+              <strong>{user?.username}</strong>
+              <small>{profileUnreadCount > 0 ? `${profileUnreadCount} 条未读` : "云层清净"}</small>
+            </div>
+          </div>
+          <div className="profileTabs" role="tablist" aria-label="个人中心">
+            <button
+              type="button"
+              className={profileTab === "posts" ? "profileTab active" : "profileTab"}
+              onClick={() => switchProfileTab("posts")}
+            >
+              <Inbox size={16} />
+              我的帖子
+              {unreadCommentCount > 0 && <span>{unreadCommentCount}</span>}
+            </button>
+            <button
+              type="button"
+              className={profileTab === "messages" ? "profileTab active" : "profileTab"}
+              onClick={() => switchProfileTab("messages")}
+            >
+              <Cloud size={16} />
+              云朵私信
+              {unreadMessageCount > 0 && <span>{unreadMessageCount}</span>}
+            </button>
+            <button
+              type="button"
+              className={profileTab === "info" ? "profileTab active" : "profileTab"}
+              onClick={() => switchProfileTab("info")}
+            >
+              <UserRound size={16} />
+              个人信息
+            </button>
+          </div>
+        </div>
+
+        {profileTab === "posts" && renderProfilePosts()}
+        {profileTab === "messages" && renderProfileMessages()}
+        {profileTab === "info" && renderProfileInfo()}
+      </section>
+    );
+  }
+  useEffect(() => {
+    if (!authOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = document.querySelector<HTMLElement>(".authModal");
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog?.querySelector<HTMLInputElement>("input")?.focus();
+    const handleDialogKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setAuthOpen(false); return; }
+      if (event.key !== "Tab" || !dialog) return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), [tabindex='0']"));
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", handleDialogKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleDialogKey);
+      previousFocus?.focus();
+    };
+  }, [authOpen]);
+
   useEffect(() => {
     loadMe();
   }, [token]);
@@ -625,6 +1089,17 @@ function App() {
   useEffect(() => {
     loadPosts().catch((error) => setNotice(error instanceof Error ? error.message : "文章加载失败"));
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setInterval(() => {
+      refreshProfileData(token).catch(() => undefined);
+      if (screen === "profile" && profileTab === "messages") {
+        refreshMessageMeta(token).catch(() => undefined);
+      }
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [token, screen, profileTab]);
 
   useEffect(() => {
     if (screen !== "home") return;
@@ -655,8 +1130,9 @@ function App() {
   }, [screen]);
 
   return (
-    <div className="app">
+    <div className="app" data-screen={screen}>
       <header className="topbar">
+        <GlassBackdrop />
         <button className="brand" onClick={() => goHome(false)}>
           <span className="brandMark">
             <img src="/site-icon.jpg" alt="" />
@@ -671,7 +1147,8 @@ function App() {
             onChange={(event) => setQuery(event.target.value)}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => window.setTimeout(() => setSearchFocused(false), 120)}
-            placeholder="搜索blog标题，摘要或作者名"
+              placeholder="搜索文章、笔记或作者"
+              aria-label="搜索文章标题、摘要或作者"
           />
           {showSearchResults && (
             <div className="searchResults">
@@ -683,8 +1160,8 @@ function App() {
                     className="searchResultItem"
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      openSearchResult(post);
                     }}
+                    onClick={() => openSearchResult(post)}
                   >
                     <span className="searchResultMain">
                       <strong>{post.title}</strong>
@@ -704,18 +1181,28 @@ function App() {
         </form>
 
         <nav className="topActions">
-          <button className="ghostButton" onClick={() => goHome(true)}>
-            <BookOpen size={17} />
-            阅读
-          </button>
-          <button className="solidButton" onClick={() => startCompose()}>
-            <PenLine size={17} />
-            写札记
+          <button type="button" className="iconTextButton glassModeToggle"
+            aria-label={glassEnabled ? "切换到简化玻璃" : "启用液态玻璃"}
+            aria-pressed={glassEnabled} disabled={!canAnimate} onClick={toggleGlass}
+            title={!canAnimate ? "当前设备使用简化玻璃，保证流畅阅读" : glassEnabled ? "切换到简化玻璃" : "启用液态玻璃"}>
+            <Sparkles size={17} />
           </button>
           {user ? (
-            <button className="iconTextButton" onClick={logout}>
-              <LogOut size={17} />
-              {user.username}
+            <button className="iconTextButton profileCenterButton" onClick={() => openProfile("posts")}>
+              <UserRound size={17} />
+              个人中心
+              {profileUnreadCount > 0 && <span className="profileUnreadBadge">{profileUnreadCount > 99 ? "99+" : profileUnreadCount}</span>}
+            </button>
+          ) : (
+            <button className="ghostButton" onClick={() => goHome(true)}>
+              <BookOpen size={17} />
+              阅读
+            </button>
+          )}
+          {user ? (
+            <button className="iconTextButton" onClick={() => goHome(true)}>
+              <BookOpen size={17} />
+              主页
             </button>
           ) : (
             <button className="iconTextButton" onClick={() => setAuthOpen(true)}>
@@ -744,8 +1231,8 @@ function App() {
                 </p>
                 <h1 aria-label={heroTitle}>
                   <span className="typewriterTitle" aria-hidden="true">
-                    <span className="typewriterText">{heroTitleChars.slice(0, heroTypedCount).join("")}</span>
-                    <span className="typewriterCursor" />
+                    <span className="typewriterText">{reducedMotion ? heroTitle : heroTitleChars.slice(0, heroTypedCount).join("")}</span>
+                    {!reducedMotion && <span className="typewriterCursor" />}
                   </span>
                 </h1>
                 <p className="heroCopy">
@@ -756,27 +1243,7 @@ function App() {
                     <Plus size={18} />
                     写札记
                   </button>
-                  {featured && (
-                    <button className="glassButton large" onClick={() => openPost(featured.id)}>
-                      <Feather size={18} />
-                      最新一篇
-                    </button>
-                  )}
                 </div>
-              </div>
-              <div className="heroStats" aria-label="站点统计">
-                <span>
-                  <strong>{stats.posts}</strong>
-                  文章
-                </span>
-                <span>
-                  <strong>{stats.comments}</strong>
-                  评论
-                </span>
-                <span>
-                  <strong>{stats.likes}</strong>
-                  喜欢
-                </span>
               </div>
             </section>
 
@@ -941,9 +1408,7 @@ function App() {
                   </button>
                 )}
               </div>
-              <div className="markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{activePost.content}</ReactMarkdown>
-              </div>
+              <ArticleContent content={activePost.content} />
             </article>
 
             <aside className="readerSideStack">
@@ -995,9 +1460,21 @@ function App() {
           </section>
         )}
 
+        {screen === "profile" && user && renderProfileCenter()}
+
         {screen === "compose" && (
-          <section className="composerShell">
-            <form className="composer" onSubmit={savePost}>
+          <section className={`composerShell composeTab-${composeTab}`}>
+            <div className="composeMobileTabs" role="tablist" aria-label="写作视图" onKeyDown={(event) => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                const next = event.key === "Home" ? "edit" : event.key === "End" ? "preview" : composeTab === "edit" ? "preview" : "edit";
+                setComposeTab(next); document.getElementById(`compose-${next}-tab`)?.focus();
+              }
+            }}>
+              <button type="button" role="tab" id="compose-edit-tab" aria-controls="compose-form" aria-selected={composeTab === "edit"} tabIndex={composeTab === "edit" ? 0 : -1} onClick={() => setComposeTab("edit")}><PenLine size={16} />编辑</button>
+              <button type="button" role="tab" id="compose-preview-tab" aria-controls="compose-preview" aria-selected={composeTab === "preview"} tabIndex={composeTab === "preview" ? 0 : -1} onClick={() => setComposeTab("preview")}><BookOpen size={16} />预览</button>
+            </div>
+            <form id="compose-form" className="composer" onSubmit={savePost}>
               <button type="button" className="textButton composeBackButton" onClick={() => goHome(true)}>
                 返回主页
               </button>
@@ -1012,7 +1489,7 @@ function App() {
                     <p className="composeHint">您发的帖子将被展示在灌水区，快来争做灌水大王！</p>
                   )}
                 </div>
-                <button className="solidButton" disabled={loading}>
+                <button className="solidButton" disabled={loading || imageUploading}>
                   <Send size={17} />
                   保存
                 </button>
@@ -1044,7 +1521,7 @@ function App() {
 
               {user?.role === "admin" && (
                 <div className="categorySelector">
-                  <div className="imageInsertTitle">
+                  <div className="categorySelectorTitle">
                     <Leaf size={17} />
                     云纸栏目
                   </div>
@@ -1062,55 +1539,54 @@ function App() {
                   </div>
                 </div>
               )}
-              <div className="imageInsertPanel">
-                <div className="imageInsertTitle">
-                  <ImagePlus size={17} />
-                  插图助手
+              <div className="editorField">
+                <div className="editorToolbar" role="toolbar" aria-label="正文工具栏">
+                  <button type="button" className="mediaIconButton" aria-label="从本地添加图片" title="添加图片" disabled={imageUploading} onClick={() => imageFileRef.current?.click()}>
+                    {imageUploading ? <Loader2 size={21} className="spinning" /> : <Plus size={23} />}
+                  </button>
+                  <button type="button" className="mediaIconButton" aria-label={splitArticleMusic(draft.content).songId ? "更换或移除文章配乐" : "添加文章配乐"} title="文章配乐" onClick={() => setMusicDialogOpen(true)}><Music2 size={21} /></button>
+                  <span className="editorToolbarLabel">正文 · Markdown</span>
+                  <input ref={imageFileRef} type="file" accept="image/jpeg,image/png,image/heic,image/heif,.jpg,.jpeg,.png,.heic,.heif" multiple hidden onChange={handleImageFilePick} />
                 </div>
-                <input
-                  value={imageUrl}
-                  onChange={(event) => setImageUrl(event.target.value)}
-                  placeholder="图片地址，例如 https://.../photo.jpg"
-                />
-                <input
-                  value={imageAlt}
-                  onChange={(event) => setImageAlt(event.target.value)}
-                  placeholder="图片描述，可选"
-                />
-                <button type="button" className="ghostButton" onClick={insertImageMarkdown}>
-                  <ImagePlus size={16} />
-                  插入图片
-                </button>
-              </div>
-              <label>
-                正文
                 <textarea
+                  id="post-content"
+                  aria-label="正文 Markdown"
+                  aria-describedby="editor-media-hint"
                   ref={contentRef}
-                  className="editorArea"
+                  className={dragOver ? "editorArea dragging" : "editorArea"}
                   value={draft.content}
                   onChange={(event) => setDraft({ ...draft, content: event.target.value })}
+                  onDragOver={(event) => {
+                    if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDragOver(true); }
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleImageDrop}
                   required
                 />
-              </label>
+                <p id="editor-media-hint" className="editorMediaHint" role="status">{imageUploading ? "正在上传图片，完成后会显示在预览中…" : "拖入照片或点 ＋ 添加（JPG / PNG / HEIC，每张 ≤ 10 MB）；点 ♫ 添加文章配乐。"}</p>
+              </div>
             </form>
-            <aside className="previewPane">
+            <aside id="compose-preview" className="previewPane">
               <p className="eyebrow muted">
                 <BookOpen size={15} />
                 Preview
               </p>
               <h1>{draft.title || "未命名札记"}</h1>
               <p>{draft.excerpt || "摘要会落在这里。"}</p>
-              <div className="markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft.content}</ReactMarkdown>
-              </div>
+              <ArticleContent content={draft.content} />
             </aside>
           </section>
         )}
       </main>
 
+      {musicDialogOpen && screen === "compose" && <AddMusicDialog currentId={splitArticleMusic(draft.content).songId}
+        onClose={() => setMusicDialogOpen(false)}
+        onAdd={(id) => { setDraft((previous) => ({ ...previous, content: withArticleMusic(previous.content, id) })); setMusicDialogOpen(false); }}
+        onRemove={() => { setDraft((previous) => ({ ...previous, content: withArticleMusic(previous.content, null) })); setMusicDialogOpen(false); }} />}
+
       {authOpen && (
         <div className="modalBackdrop">
-          <form className="authModal" onSubmit={handleAuth}>
+          <form className="authModal" role="dialog" aria-modal="true" aria-labelledby="auth-title" onSubmit={handleAuth}>
             <button className="modalClose" type="button" onClick={() => setAuthOpen(false)} title="关闭">
               <X size={18} />
             </button>
@@ -1118,7 +1594,7 @@ function App() {
               <UserRound size={15} />
               Account
             </p>
-            <h2>{authMode === "login" ? "回到札记" : "种下一枚新名字"}</h2>
+            <h2 id="auth-title">{authMode === "login" ? "回到札记" : "种下一枚新名字"}</h2>
             {authMode === "register" && (
               <label>
                 用户名
@@ -1127,13 +1603,14 @@ function App() {
             )}
             <label>
               邮箱
-              <input name="email" type="email" required defaultValue={authMode === "login" ? "wenzhenxiansheng@163.com" : ""} />
+              <input name="email" type="email" autoComplete="email" required />
             </label>
             <label>
               密码
               <input
                 name="password"
                 type="password"
+                autoComplete={authMode === "login" ? "current-password" : "new-password"}
                 minLength={8}
                 required
                 defaultValue=""

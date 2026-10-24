@@ -28,6 +28,7 @@ import {
   X
 } from "lucide-react";
 import { api } from "./api";
+import githubMark from "./assets/github-mark.svg";
 import { ArticleContent } from "./components/ArticleContent";
 import { AddMusicDialog } from "./components/AddMusicDialog";
 import { splitArticleMusic, withArticleMusic } from "./lib/articleMusic";
@@ -1187,6 +1188,11 @@ function App() {
             title={!canAnimate ? "当前设备使用简化玻璃，保证流畅阅读" : glassEnabled ? "切换到简化玻璃" : "启用液态玻璃"}>
             <Sparkles size={17} />
           </button>
+          <a className="iconTextButton githubLink" href="https://github.com/Zhou-316"
+            target="_blank" rel="noopener noreferrer" aria-label="访问 Zhou-316 的 GitHub 主页（新标签页）"
+            title="Zhou-316 · GitHub">
+            <img src={githubMark} width={20} height={20} alt="" aria-hidden="true" />
+          </a>
           {user ? (
             <button className="iconTextButton profileCenterButton" onClick={() => openProfile("posts")}>
               <UserRound size={17} />

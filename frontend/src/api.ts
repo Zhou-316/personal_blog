@@ -108,9 +108,10 @@ export const api = {
       token
     });
   },
-  summarizePost(id: number) {
+  summarizePost(id: number, signal?: AbortSignal) {
     return request<AiSummaryResponse>(`/posts/${id}/summary`, {
-      method: "POST"
+      method: "POST",
+      signal
     });
   },
   togglePostLike(id: number, token: string) {
@@ -122,15 +123,15 @@ export const api = {
   comments(postId: number, token?: string | null) {
     return request<CommentItem[]>(`/posts/${postId}/comments`, { token });
   },
-  createComment(postId: number, content: string, token: string) {
+  createComment(postId: number, content: string, token: string, parentId: number | null = null) {
     return request<CommentItem>(`/posts/${postId}/comments`, {
       method: "POST",
       token,
-      body: JSON.stringify({ content })
+      body: JSON.stringify({ content, parent_id: parentId })
     });
   },
   deleteComment(id: number, token: string) {
-    return request<void>(`/comments/${id}`, {
+    return request<{ deleted: boolean; retained: boolean }>(`/comments/${id}`, {
       method: "DELETE",
       token
     });

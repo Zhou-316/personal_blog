@@ -85,6 +85,15 @@ class PostUpdate(BaseModel):
 
 class CommentCreate(BaseModel):
     content: str = Field(min_length=1, max_length=800)
+    parent_id: int | None = Field(default=None, gt=0)
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("评论不能为空")
+        return value
 
 
 class NotificationReadRequest(BaseModel):
@@ -157,7 +166,9 @@ def category_for_user(value: str, user: sqlite3.Row) -> str:
 
 def build_post_payload(conn: sqlite3.Connection, row: sqlite3.Row, viewer_id: int | None = None) -> dict:
     author = conn.execute("SELECT * FROM users WHERE id = ?", (row["author_id"],)).fetchone()
-    comment_count = conn.execute("SELECT COUNT(*) FROM comments WHERE post_id = ?", (row["id"],)).fetchone()[0]
+    comment_count = conn.execute(
+        "SELECT COUNT(*) FROM comments WHERE post_id = ? AND deleted_at IS NULL", (row["id"],)
+    ).fetchone()[0]
     like_count = conn.execute(
         "SELECT COUNT(*) FROM likes WHERE target_type = 'post' AND target_id = ?",
         (row["id"],),
@@ -192,7 +203,9 @@ def build_post_payload(conn: sqlite3.Connection, row: sqlite3.Row, viewer_id: in
     }
 
 
-def build_comment_payload(conn: sqlite3.Connection, row: sqlite3.Row, viewer_id: int | None = None) -> dict:
+def build_comment_payload(
+    conn: sqlite3.Connection, row: sqlite3.Row, viewer_id: int | None = None, reply_count: int = 0
+) -> dict:
     author = conn.execute("SELECT * FROM users WHERE id = ?", (row["author_id"],)).fetchone()
     like_count = conn.execute(
         "SELECT COUNT(*) FROM likes WHERE target_type = 'comment' AND target_id = ?",
@@ -214,11 +227,15 @@ def build_comment_payload(conn: sqlite3.Connection, row: sqlite3.Row, viewer_id:
     return {
         "id": row["id"],
         "post_id": row["post_id"],
-        "content": row["content"],
+        "parent_id": row["parent_id"],
+        "root_id": row["root_id"],
+        "content": "" if row["deleted_at"] else row["content"],
         "author": row_to_user(author).model_dump(),
         "created_at": row["created_at"],
         "like_count": like_count,
         "liked_by_me": liked_by_me,
+        "reply_count": reply_count,
+        "is_deleted": row["deleted_at"] is not None,
     }
 
 
@@ -755,10 +772,19 @@ def list_comments(post_id: int, authorization: Annotated[str | None, Header()] =
         if not post:
             raise HTTPException(status_code=404, detail="文章不存在")
         rows = conn.execute(
-            "SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC",
+            "SELECT * FROM comments WHERE post_id = ? ORDER BY id DESC",
             (post_id,),
         ).fetchall()
-        return [build_comment_payload(conn, row, viewer_id) for row in rows]
+        # Parents are inserted before their replies. Walk backwards to accumulate
+        # every surviving descendant, including replies to replies, in one pass.
+        reply_counts = {row["id"]: 0 for row in rows}
+        for row in rows:
+            if row["parent_id"] is not None:
+                reply_counts[row["parent_id"]] += reply_counts[row["id"]] + int(row["deleted_at"] is None)
+        comments = [build_comment_payload(conn, row, viewer_id, reply_counts[row["id"]]) for row in rows]
+        return sorted(comments, key=lambda item: (
+            -(item["like_count"] + item["reply_count"] * 2), item["created_at"], item["id"]
+        ))
 
 
 @router.post("/posts/{post_id}/comments", status_code=201)
@@ -771,21 +797,32 @@ def create_comment(
         post = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
         if not post:
             raise HTTPException(status_code=404, detail="文章不存在")
+        parent = None
+        if payload.parent_id is not None:
+            parent = conn.execute(
+                "SELECT * FROM comments WHERE id = ? AND post_id = ?", (payload.parent_id, post_id)
+            ).fetchone()
+            if not parent or parent["deleted_at"] is not None:
+                raise HTTPException(status_code=404, detail="要回复的评论不存在或已删除")
+        root_id = (parent["root_id"] or parent["id"]) if parent else None
         cursor = conn.execute(
             """
-            INSERT INTO comments (post_id, author_id, content, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO comments (post_id, author_id, content, created_at, parent_id, root_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (post_id, user["id"], payload.content.strip(), now_iso()),
+            (post_id, user["id"], payload.content, now_iso(), payload.parent_id, root_id),
         )
         row = conn.execute("SELECT * FROM comments WHERE id = ?", (cursor.lastrowid,)).fetchone()
-        if post["author_id"] != user["id"]:
+        recipients = {post["author_id"]}
+        if parent:
+            recipients.add(parent["author_id"])
+        for recipient_id in recipients - {user["id"]}:
             conn.execute(
                 """
                 INSERT INTO notifications (user_id, actor_id, type, post_id, comment_id, created_at)
                 VALUES (?, ?, 'comment', ?, ?, ?)
                 """,
-                (post["author_id"], user["id"], post_id, row["id"], row["created_at"]),
+                (recipient_id, user["id"], post_id, row["id"], row["created_at"]),
             )
         return build_comment_payload(conn, row, user["id"])
 
@@ -799,15 +836,22 @@ def delete_comment(comment_id: int, user: Annotated[sqlite3.Row, Depends(require
         can_delete = row["author_id"] == user["id"] or is_admin(user)
         if not can_delete:
             raise HTTPException(status_code=403, detail="只能删除自己的评论")
-        conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
-        return {"deleted": True}
+        retained = conn.execute("SELECT 1 FROM comments WHERE parent_id = ? LIMIT 1", (comment_id,)).fetchone() is not None
+        if retained:
+            # Keep the thread connected without retaining the removed content.
+            conn.execute("UPDATE comments SET content = '', deleted_at = ? WHERE id = ?", (now_iso(), comment_id))
+        else:
+            conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+        conn.execute("DELETE FROM likes WHERE target_type = 'comment' AND target_id = ?", (comment_id,))
+        conn.execute("DELETE FROM notifications WHERE comment_id = ?", (comment_id,))
+        return {"deleted": True, "retained": retained}
 
 
 @router.post("/comments/{comment_id}/likes")
 def toggle_comment_like(comment_id: int, user: Annotated[sqlite3.Row, Depends(require_user)]) -> dict:
     with get_connection() as conn:
         comment = conn.execute("SELECT * FROM comments WHERE id = ?", (comment_id,)).fetchone()
-        if not comment:
+        if not comment or comment["deleted_at"] is not None:
             raise HTTPException(status_code=404, detail="评论不存在")
         existing = conn.execute(
             "SELECT id FROM likes WHERE user_id = ? AND target_type = 'comment' AND target_id = ?",

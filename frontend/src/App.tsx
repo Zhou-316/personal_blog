@@ -1,10 +1,9 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Bell,
   BookOpen,
-  Check,
   Cloud,
   Edit3,
   Flame,
@@ -30,11 +29,14 @@ import {
 import { api } from "./api";
 import githubMark from "./assets/github-mark.svg";
 import { ArticleContent } from "./components/ArticleContent";
+import { CommentSection } from "./components/CommentSection";
 import { AddMusicDialog } from "./components/AddMusicDialog";
 import { splitArticleMusic, withArticleMusic } from "./lib/articleMusic";
 import { GlassBackdrop } from "./components/glass/GlassBackdrop";
+import { GlassButton } from "./components/glass/GlassButton";
+import { GlassTabIndicator } from "./components/glass/GlassTabIndicator";
 import { useGlassCapabilities } from "./hooks/useGlassCapabilities";
-import type { AuthResponse, CommentItem, DirectMessage, MessageThread, Post, PostInput, User, UserCenter } from "./types";
+import type { AuthResponse, DirectMessage, MessageThread, Post, PostInput, User, UserCenter } from "./types";
 
 type Screen = "home" | "detail" | "compose" | "category" | "water" | "profile";
 type OwnerCategory = "小说随笔" | "旅行日记" | "技术笔记" | "课程笔记与资料";
@@ -52,7 +54,7 @@ const ownerCategories: Array<{ name: OwnerCategory; subtitle: string; descriptio
 const emptyDraft: PostInput = {
   title: "",
   excerpt: "",
-  content: "## 今天想写下\n\n",
+  content: "",
   mood: "随笔",
   category: "小说随笔"
 };
@@ -67,27 +69,27 @@ function formatDate(value: string) {
 }
 
 function App() {
-  const { enabled: glassEnabled, canAnimate, reducedMotion, toggle: toggleGlass } = useGlassCapabilities();
+  const { enabled: glassEnabled, renderer: glassRenderer, reducedMotion, toggle: toggleGlass } = useGlassCapabilities();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("blog_token"));
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [activePost, setActivePost] = useState<Post | null>(null);
   const [activeCategory, setActiveCategory] = useState<OwnerCategory | null>(null);
-  const [comments, setComments] = useState<CommentItem[]>([]);
   const [screen, setScreen] = useState<Screen>("home");
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<PostInput>(emptyDraft);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [commentText, setCommentText] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
-  const [summaryMode, setSummaryMode] = useState<"prompt" | "summary" | "dismissed">("prompt");
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryText, setSummaryText] = useState("");
   const [summaryError, setSummaryError] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const summaryRequestRef = useRef<AbortController | null>(null);
+  const summaryToggleRef = useRef<HTMLButtonElement | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const imageFileRef = useRef<HTMLInputElement | null>(null);
@@ -105,6 +107,28 @@ function App() {
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [heroTypedCount, setHeroTypedCount] = useState(0);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    setSummaryOpen(false);
+    setSummaryText("");
+    setSummaryError("");
+    setSummaryLoading(false);
+    return () => {
+      summaryRequestRef.current?.abort();
+      summaryRequestRef.current = null;
+    };
+  }, [activePost?.id, activePost?.updated_at, screen]);
+
+  useEffect(() => {
+    if (summaryOpen && window.matchMedia("(max-width: 980px)").matches) {
+      document.getElementById("ai-summary-panel")?.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "instant" : "smooth" });
+    }
+  }, [summaryOpen, reducedMotion]);
+
+  const summaryToggleLabel = summaryOpen
+    ? summaryLoading ? "停止并收起" : "收起 AI 总结"
+    : summaryText ? "查看 AI 总结" : "AI 文章总结";
+  const summaryToggleHint = summaryOpen && summaryLoading ? "停止生成并收起 AI 总结" : summaryToggleLabel;
 
   const ownerPosts = useMemo(() => posts.filter((post) => post.author.role === "admin"), [posts]);
   const waterPosts = useMemo(() => posts.filter((post) => post.author.role !== "admin"), [posts]);
@@ -270,12 +294,8 @@ function App() {
   }
 
   async function openPost(postId: number) {
-    const [postData, commentData] = await Promise.all([
-      api.post(postId, token),
-      api.comments(postId, token)
-    ]);
+    const postData = await api.post(postId, token);
     setActivePost(postData);
-    setComments(commentData);
     setScreen("detail");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -424,36 +444,12 @@ function App() {
     }
   }
 
-  async function submitComment(event: FormEvent) {
-    event.preventDefault();
-    if (!activePost || !token || !requireLogin()) return;
-    if (!commentText.trim()) return;
-    const created = await api.createComment(activePost.id, commentText, token);
-    setComments((items) => [...items, created]);
-    setActivePost({ ...activePost, comment_count: activePost.comment_count + 1 });
-    setCommentText("");
-    await loadPosts();
-  }
-
-  async function removeComment(commentId: number) {
-    if (!token || !activePost) return;
-    await api.deleteComment(commentId, token);
-    setComments((items) => items.filter((comment) => comment.id !== commentId));
-    setActivePost({ ...activePost, comment_count: Math.max(0, activePost.comment_count - 1) });
-    await loadPosts();
-  }
-
-  async function toggleCommentLike(commentId: number) {
-    if (!token || !requireLogin()) return;
-    const result = await api.toggleCommentLike(commentId, token);
-    setComments((items) =>
-      items.map((comment) =>
-        comment.id === commentId
-          ? { ...comment, liked_by_me: result.liked, like_count: result.like_count }
-          : comment
-      )
-    );
-  }
+  const handleCommentCountChange = useCallback((postId: number, count: number) => {
+    setPosts((items) => items.map((post) => post.id === postId && post.comment_count !== count
+      ? { ...post, comment_count: count } : post));
+    setActivePost((post) => post?.id === postId && post.comment_count !== count
+      ? { ...post, comment_count: count } : post);
+  }, []);
 
 
 
@@ -554,18 +550,42 @@ function App() {
   }
   async function requestAiSummary() {
     if (!activePost) return;
-    setSummaryMode("summary");
+    summaryRequestRef.current?.abort();
+    const controller = new AbortController();
+    summaryRequestRef.current = controller;
+    setSummaryOpen(true);
     setSummaryLoading(true);
     setSummaryError("");
     setSummaryText("");
     try {
-      const response = await api.summarizePost(activePost.id);
-      setSummaryText(response.summary);
+      const response = await api.summarizePost(activePost.id, controller.signal);
+      if (controller.signal.aborted || summaryRequestRef.current !== controller) return;
+      const text = response.summary.trim();
+      if (!text) throw new Error("暂未生成总结，请重试。");
+      setSummaryText(text);
     } catch (error) {
+      if (controller.signal.aborted || summaryRequestRef.current !== controller) return;
       setSummaryError(error instanceof Error ? error.message : "AI 总结生成失败");
     } finally {
-      setSummaryLoading(false);
+      if (summaryRequestRef.current === controller) {
+        summaryRequestRef.current = null;
+        setSummaryLoading(false);
+      }
     }
+  }
+
+  function closeAiSummary() {
+    summaryRequestRef.current?.abort();
+    summaryRequestRef.current = null;
+    setSummaryOpen(false);
+    setSummaryLoading(false);
+    setSummaryError("");
+  }
+
+  function toggleAiSummary() {
+    if (summaryOpen) closeAiSummary();
+    else if (summaryText) setSummaryOpen(true);
+    else void requestAiSummary();
   }
 
   function renderHomeSidebar() {
@@ -604,56 +624,27 @@ function App() {
   }
 
   function renderAiSummary() {
-    if (summaryMode === "dismissed") return null;
-
     return (
-      <section className="aiSummaryCard">
-        {summaryMode === "prompt" ? (
-          <>
-            <div className="summaryPromptIcon">
-              <Sparkles size={18} />
-            </div>
-            <p>读得有点累了...是否需要AI帮助文章总结？</p>
-            <div className="summaryChoices">
-              <button type="button" className="choiceButton accept" onClick={requestAiSummary} title="需要总结">
-                <Check size={17} />
-              </button>
-              <button
-                type="button"
-                className="choiceButton reject"
-                onClick={() => setSummaryMode("dismissed")}
-                title="暂不需要"
-              >
-                <X size={17} />
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="summaryHeader">
-              <h2>
-                <Sparkles size={17} />
-                AI文章总结
-              </h2>
-              <button type="button" className="metric" onClick={() => setSummaryMode("dismissed")} title="关闭总结">
-                <X size={15} />
-              </button>
-            </div>
-            {summaryLoading && <div className="summaryLoading">正在整理文章脉络...</div>}
-            {summaryError && (
-              <div className="summaryError">
-                <p>{summaryError}</p>
-                <button type="button" className="ghostButton" onClick={requestAiSummary}>
-                  重新生成
-                </button>
-              </div>
-            )}
-            {!summaryLoading && !summaryError && summaryText && (
-              <div className="markdown summaryMarkdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{summaryText}</ReactMarkdown>
-              </div>
-            )}
-          </>
+      <section className="aiSummaryCard" aria-busy={summaryLoading}>
+        <div className="summaryHeader">
+          <h2 id="ai-summary-title"><Sparkles size={17} />AI 文章总结</h2>
+          <button type="button" className="metric" aria-label={summaryLoading ? "停止生成并收起总结" : "收起总结"}
+            title={summaryLoading ? "停止生成并收起总结" : "收起总结"} onClick={() => {
+              closeAiSummary();
+              summaryToggleRef.current?.focus();
+            }}><X size={15} /></button>
+        </div>
+        {summaryLoading && <div className="summaryLoading" role="status"><Loader2 size={17} className="spinning" />正在生成总结...</div>}
+        {summaryError && (
+          <div className="summaryError" role="alert">
+            <p>{summaryError}</p>
+            <button type="button" className="ghostButton" onClick={() => void requestAiSummary()}>重新生成</button>
+          </div>
+        )}
+        {!summaryLoading && !summaryError && summaryText && (
+          <div className="markdown summaryMarkdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summaryText}</ReactMarkdown>
+          </div>
         )}
       </section>
     );
@@ -1025,6 +1016,7 @@ function App() {
             </div>
           </div>
           <div className="profileTabs" role="tablist" aria-label="个人中心">
+            <GlassTabIndicator active={profileTab} />
             <button
               type="button"
               className={profileTab === "posts" ? "profileTab active" : "profileTab"}
@@ -1184,8 +1176,8 @@ function App() {
         <nav className="topActions">
           <button type="button" className="iconTextButton glassModeToggle"
             aria-label={glassEnabled ? "切换到简化玻璃" : "启用液态玻璃"}
-            aria-pressed={glassEnabled} disabled={!canAnimate} onClick={toggleGlass}
-            title={!canAnimate ? "当前设备使用简化玻璃，保证流畅阅读" : glassEnabled ? "切换到简化玻璃" : "启用液态玻璃"}>
+            aria-pressed={glassEnabled} onClick={toggleGlass}
+            title={`${glassEnabled ? "当前：液态玻璃" : "当前：简化玻璃"}${glassRenderer === "compatible" ? "（兼容效果）" : ""}，点击切换`}>
             <Sparkles size={17} />
           </button>
           <a className="iconTextButton githubLink" href="https://github.com/Zhou-316"
@@ -1245,10 +1237,10 @@ function App() {
                   欢迎来到纸上尘的个人博客！在这里收录我的小说随笔，旅行日记，技术笔记和课程资料，欢迎评论点赞~也欢迎来灌水区随意发帖玩。
                 </p>
                 <div className="heroButtons">
-                  <button className="solidButton large" onClick={() => startCompose()}>
+                  <GlassButton type="button" className="large" onClick={() => startCompose()}>
                     <Plus size={18} />
                     写札记
-                  </button>
+                  </GlassButton>
                 </div>
               </div>
             </section>
@@ -1377,92 +1369,66 @@ function App() {
           </section>
         )}
         {screen === "detail" && activePost && (
-          <section className="readerShell">
-            <article className="reader">
-              <div className="readerMeta">
-                <button className="textButton" onClick={() => goHome(true)}>
-                  返回主页
-                </button>
-                <span>{activePost.mood}</span>
-                <span>{activePost.author.username}</span>
-                <time>{formatDate(activePost.updated_at)}</time>
-              </div>
-              <h1>{activePost.title}</h1>
-              <p className="readerExcerpt">{activePost.excerpt}</p>
-              <div className="readerActions">
-                <button
-                  className={activePost.liked_by_me ? "pillButton active" : "pillButton"}
-                  onClick={() => togglePostLike(activePost.id)}
-                >
-                  <Heart size={17} />
-                  {activePost.like_count}
-                </button>
-                <span className="pillInfo">
-                  <MessageCircle size={17} />
-                  {activePost.comment_count}
-                </span>
-                {user?.id === activePost.author.id && (
-                  <button className="pillButton" onClick={() => startCompose(activePost)}>
-                    <Edit3 size={17} />
-                    编辑
+          <section className={`readerShell${summaryOpen ? " hasSummary" : ""}`}>
+            <div className="readerMain">
+              <article className="reader">
+                <div className="readerMeta">
+                  <button className="textButton" onClick={() => goHome(true)}>
+                    返回主页
                   </button>
-                )}
-                {(user?.id === activePost.author.id || user?.role === "admin") && (
-                  <button className="pillButton danger" onClick={() => deletePost(activePost.id)}>
-                    <Trash2 size={17} />
-                    删除
-                  </button>
-                )}
-              </div>
-              <ArticleContent content={activePost.content} />
-            </article>
-
-            <aside className="readerSideStack">
-              <section className="commentPanel">
-                <div className="panelHeader">
-                  <h2>回声</h2>
-                  <span>{comments.length}</span>
+                  <span>{activePost.mood}</span>
+                  <span>{activePost.author.username}</span>
+                  <time>{formatDate(activePost.updated_at)}</time>
                 </div>
-              <form className="commentForm" onSubmit={submitComment}>
-                <textarea
-                  value={commentText}
-                  onChange={(event) => setCommentText(event.target.value)}
-                  placeholder={user ? "留下一点回声" : "登录后评论"}
-                  disabled={!user}
-                />
-                <button className="solidButton" disabled={!user || !commentText.trim()}>
-                  <Send size={16} />
-                  发送
-                </button>
-              </form>
-              <div className="commentList">
-                {comments.map((comment) => (
-                  <article key={comment.id} className="commentItem">
-                    <div className="commentMeta">
-                      <strong>{comment.author.username}</strong>
-                      <time>{formatDate(comment.created_at)}</time>
-                    </div>
-                    <p>{comment.content}</p>
-                    <div className="commentActions">
-                      <button
-                        className={comment.liked_by_me ? "metric active" : "metric"}
-                        onClick={() => toggleCommentLike(comment.id)}
-                      >
-                        <Heart size={15} />
-                        {comment.like_count}
-                      </button>
-                      {(user?.id === comment.author.id || user?.role === "admin") && (
-                        <button className="metric dangerText" onClick={() => removeComment(comment.id)}>
-                          <Trash2 size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
-              </section>
+                <h1>{activePost.title}</h1>
+                <p className="readerExcerpt">{activePost.excerpt}</p>
+                <div className="readerActions">
+                  <button
+                    className={activePost.liked_by_me ? "pillButton active" : "pillButton"}
+                    onClick={() => togglePostLike(activePost.id)}
+                  >
+                    <Heart size={17} />
+                    {activePost.like_count}
+                  </button>
+                  <button type="button" className="pillInfo commentJumpButton"
+                    aria-label={`跳转到评论区，${activePost.comment_count} 条评论`} aria-controls="article-comments" title="跳转到评论区"
+                    onClick={() => {
+                      const comments = document.getElementById("article-comments");
+                      if (!comments) return;
+                      const headerBottom = document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0;
+                      window.scrollBy({ top: comments.getBoundingClientRect().top - headerBottom - 20, behavior: reducedMotion ? "instant" : "smooth" });
+                      comments.focus({ preventScroll: true });
+                    }}>
+                    <MessageCircle size={17} />
+                    {activePost.comment_count}
+                  </button>
+                  <button type="button" ref={summaryToggleRef} className="pillButton summaryToggle"
+                    aria-expanded={summaryOpen} aria-controls={summaryOpen ? "ai-summary-panel" : undefined}
+                    aria-label={summaryToggleHint} title={summaryToggleHint} onClick={toggleAiSummary}>
+                    {summaryLoading ? <Loader2 size={17} className="spinning" /> : <Sparkles size={17} />}
+                    {summaryToggleLabel}
+                  </button>
+                  {user?.id === activePost.author.id && (
+                    <button className="pillButton" onClick={() => startCompose(activePost)}>
+                      <Edit3 size={17} />
+                      编辑
+                    </button>
+                  )}
+                  {(user?.id === activePost.author.id || user?.role === "admin") && (
+                    <button className="pillButton danger" onClick={() => deletePost(activePost.id)}>
+                      <Trash2 size={17} />
+                      删除
+                    </button>
+                  )}
+                </div>
+                <ArticleContent content={activePost.content} />
+              </article>
+              <CommentSection key={activePost.id} postId={activePost.id} user={user} token={token}
+                onRequireLogin={requireLogin} onCountChange={handleCommentCountChange} />
+            </div>
+            {summaryOpen && <aside id="ai-summary-panel" className="readerSideStack" aria-labelledby="ai-summary-title">
               {renderAiSummary()}
-            </aside>
+            </aside>}
           </section>
         )}
 
@@ -1477,6 +1443,7 @@ function App() {
                 setComposeTab(next); document.getElementById(`compose-${next}-tab`)?.focus();
               }
             }}>
+              <GlassTabIndicator active={composeTab} />
               <button type="button" role="tab" id="compose-edit-tab" aria-controls="compose-form" aria-selected={composeTab === "edit"} tabIndex={composeTab === "edit" ? 0 : -1} onClick={() => setComposeTab("edit")}><PenLine size={16} />编辑</button>
               <button type="button" role="tab" id="compose-preview-tab" aria-controls="compose-preview" aria-selected={composeTab === "preview"} tabIndex={composeTab === "preview" ? 0 : -1} onClick={() => setComposeTab("preview")}><BookOpen size={16} />预览</button>
             </div>
@@ -1486,16 +1453,12 @@ function App() {
               </button>
               <div className="sectionHeader compact">
                 <div>
-                  <p className="eyebrow muted">
-                    <PenLine size={15} />
-                    Writing
-                  </p>
-                  <h2>{editingId ? "整理这篇札记" : "写一篇新札记"}</h2>
+                  <h2>{editingId ? "Revise the Blog" : "A New Blog"}</h2>
                   {!editingId && user?.role !== "admin" && (
                     <p className="composeHint">您发的帖子将被展示在灌水区，快来争做灌水大王！</p>
                   )}
                 </div>
-                <button className="solidButton" disabled={loading || imageUploading}>
+                <button className="solidButton composeSaveButton" disabled={loading || imageUploading}>
                   <Send size={17} />
                   保存
                 </button>
@@ -1529,7 +1492,7 @@ function App() {
                 <div className="categorySelector">
                   <div className="categorySelectorTitle">
                     <Leaf size={17} />
-                    云纸栏目
+                    栏目
                   </div>
                   <div className="categoryChoices">
                     {ownerCategories.map((category) => (
@@ -1546,6 +1509,7 @@ function App() {
                 </div>
               )}
               <div className="editorField">
+                <p id="editor-media-hint" className="editorMediaHint" role="status">{imageUploading ? "正在上传图片，完成后会显示在预览中…" : "拖入照片或点 ＋ 添加（JPG / PNG / HEIC，每张 ≤ 10 MB）；点 ♫ 添加文章配乐。"}</p>
                 <div className="editorToolbar" role="toolbar" aria-label="正文工具栏">
                   <button type="button" className="mediaIconButton" aria-label="从本地添加图片" title="添加图片" disabled={imageUploading} onClick={() => imageFileRef.current?.click()}>
                     {imageUploading ? <Loader2 size={21} className="spinning" /> : <Plus size={23} />}
@@ -1561,6 +1525,7 @@ function App() {
                   ref={contentRef}
                   className={dragOver ? "editorArea dragging" : "editorArea"}
                   value={draft.content}
+                  placeholder="正文..."
                   onChange={(event) => setDraft({ ...draft, content: event.target.value })}
                   onDragOver={(event) => {
                     if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDragOver(true); }
@@ -1569,7 +1534,6 @@ function App() {
                   onDrop={handleImageDrop}
                   required
                 />
-                <p id="editor-media-hint" className="editorMediaHint" role="status">{imageUploading ? "正在上传图片，完成后会显示在预览中…" : "拖入照片或点 ＋ 添加（JPG / PNG / HEIC，每张 ≤ 10 MB）；点 ♫ 添加文章配乐。"}</p>
               </div>
             </form>
             <aside id="compose-preview" className="previewPane">
@@ -1577,8 +1541,8 @@ function App() {
                 <BookOpen size={15} />
                 Preview
               </p>
-              <h1>{draft.title || "未命名札记"}</h1>
-              <p>{draft.excerpt || "摘要会落在这里。"}</p>
+              <h1>{draft.title || "标题"}</h1>
+              <p>{draft.excerpt || "摘要"}</p>
               <ArticleContent content={draft.content} />
             </aside>
           </section>

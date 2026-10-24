@@ -67,7 +67,7 @@ export function MusicPlayer({ songId }: { songId: string }) {
         onChange={(event) => { if (audioRef.current) { audioRef.current.currentTime = Number(event.target.value); setCurrent(Number(event.target.value)); } }} />
       <span>{clock(duration)}</span>
     </div>
-    <div className="musicPlayerFooter"><small>点击播放 · 网易云音乐</small>
+    <div className="musicPlayerFooter">
       <button type="button" className="textButton" onClick={() => setLoginOpen(true)}><UserRound size={14} />网易云账号</button>
     </div>
     {error && <p className="mediaError" role="alert">{error}</p>}

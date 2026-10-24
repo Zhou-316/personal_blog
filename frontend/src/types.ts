@@ -25,11 +25,15 @@ export type Post = {
 export type CommentItem = {
   id: number;
   post_id: number;
+  parent_id: number | null;
+  root_id: number | null;
   content: string;
   author: User;
   created_at: string;
   like_count: number;
   liked_by_me: boolean;
+  reply_count: number;
+  is_deleted: boolean;
 };
 
 export type AuthResponse = {

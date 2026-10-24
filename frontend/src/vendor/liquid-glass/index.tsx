@@ -32,7 +32,7 @@ const getMap = (mode: "standard" | "polar" | "prominent" | "shader", shaderMapUr
 }
 
 /* ---------- SVG filter (edge-only displacement) ---------- */
-const GlassFilter: React.FC<{ id: string; displacementScale: number; aberrationIntensity: number; width: number; height: number; mode: "standard" | "polar" | "prominent" | "shader"; shaderMapUrl?: string }> = ({
+export const GlassFilter: React.FC<{ id: string; displacementScale: number; aberrationIntensity: number; width: number; height: number; mode: "standard" | "polar" | "prominent" | "shader"; shaderMapUrl?: string; cornerRadius?: number; edgeWidth?: number }> = ({
   id,
   displacementScale,
   aberrationIntensity,
@@ -40,30 +40,31 @@ const GlassFilter: React.FC<{ id: string; displacementScale: number; aberrationI
   height,
   mode,
   shaderMapUrl,
-}) => (
+  cornerRadius = 24,
+  edgeWidth = 8,
+}) => {
+  const w = Math.max(2, width), h = Math.max(2, height)
+  const radius = Math.min(cornerRadius, w / 2, h / 2)
+  const band = Math.max(1, Math.min(edgeWidth, Math.min(w, h) / 2 - .5))
+  const edgeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${radius}" fill="white"/><rect x="${band}" y="${band}" width="${w - band * 2}" height="${h - band * 2}" rx="${Math.max(0, radius - band)}" fill="black"/></svg>`
+  const edgeMap = `data:image/svg+xml,${encodeURIComponent(edgeSvg)}`
+  return (
   <svg style={{ position: "absolute", width, height }} aria-hidden="true">
     <defs>
-      <radialGradient id={`${id}-edge-mask`} cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stopColor="black" stopOpacity="0" />
-        <stop offset={`${Math.max(30, 80 - aberrationIntensity * 2)}%`} stopColor="black" stopOpacity="0" />
-        <stop offset="100%" stopColor="white" stopOpacity="1" />
-      </radialGradient>
-      <filter id={id} x="-35%" y="-35%" width="170%" height="170%" colorInterpolationFilters="sRGB">
+      <filter id={id} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
         <feImage id={`${id}-map`} x="0" y="0" width="100%" height="100%" result="DISPLACEMENT_MAP" href={getMap(mode, shaderMapUrl)} preserveAspectRatio="xMidYMid slice" />
 
-        {/* Create edge mask using the displacement map itself */}
+        {/* An explicit rounded ring keeps refraction away from the quiet center. */}
+        <feImage href={edgeMap} x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="EDGE_SHAPE" />
         <feColorMatrix
-          in="DISPLACEMENT_MAP"
+          in="EDGE_SHAPE"
           type="matrix"
-          values="0.3 0.3 0.3 0 0
-                 0.3 0.3 0.3 0 0
-                 0.3 0.3 0.3 0 0
-                 0 0 0 1 0"
-          result="EDGE_INTENSITY"
+          values="0 0 0 0 1
+                  0 0 0 0 1
+                  0 0 0 0 1
+                  0.2126 0.7152 0.0722 0 0"
+          result="EDGE_MASK"
         />
-        <feComponentTransfer in="EDGE_INTENSITY" result="EDGE_MASK">
-          <feFuncA type="discrete" tableValues={`0 ${aberrationIntensity * 0.05} 1`} />
-        </feComponentTransfer>
 
         {/* Original undisplaced image for center */}
         <feOffset in="SourceGraphic" dx="0" dy="0" result="CENTER_ORIGINAL" />
@@ -126,6 +127,7 @@ const GlassFilter: React.FC<{ id: string; displacementScale: number; aberrationI
     </defs>
   </svg>
 )
+}
 
 /* ---------- container ---------- */
 const GlassContainer = forwardRef<
@@ -194,7 +196,7 @@ const GlassContainer = forwardRef<
 
     return (
       <div ref={ref} className={`relative ${className} ${active ? "active" : ""} ${Boolean(onClick) ? "cursor-pointer" : ""}`} style={style} onClick={onClick}>
-        <GlassFilter mode={mode} id={filterId} displacementScale={displacementScale} aberrationIntensity={aberrationIntensity} width={glassSize.width} height={glassSize.height} shaderMapUrl={shaderMapUrl} />
+        <GlassFilter mode={mode} id={filterId} displacementScale={displacementScale} aberrationIntensity={aberrationIntensity} width={glassSize.width} height={glassSize.height} shaderMapUrl={shaderMapUrl} cornerRadius={cornerRadius} />
 
         <div
           className="glass"

@@ -15,3 +15,9 @@ are documented below.
 - Add ResizeObserver cleanup so asynchronous content and responsive layout changes
   keep the decorative layers aligned.
 - Make the displacement image id unique per instance.
+- Export the optical filter independently, avoiding the demo container's positioning
+  and duplicated bevel layers in application controls.
+- Use an explicit rounded edge mask with a configurable width; keep the center
+  undisplaced instead of deriving mask alpha from an opaque displacement image.
+- Bound the filter region to the glass surface; its wrapper already clips overflow,
+  so an expanded offscreen filter surface would only add rendering work.

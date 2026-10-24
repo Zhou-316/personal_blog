@@ -1,0 +1,21 @@
+.readerShell { max-width: 858px; grid-template-columns: minmax(0, 1fr); }
+.readerShell.hasSummary { max-width: 1240px; grid-template-columns: minmax(0, 1fr) 360px; }
+.readerShell .readerSideStack { min-width: 0; }
+.commentJumpButton { border: 0; transition: background 160ms ease; }
+.commentJumpButton:hover { background: #dce9ee; }
+.articleComments:focus { outline: none; }
+.readerActions .summaryToggle { gap: 7px; font-size: 13px; white-space: nowrap; }
+.summaryToggle[aria-expanded="true"] { color: #315e73; background: #e6f0f6; border-color: #c9dce7; }
+.summaryToggle:focus-visible { outline: 2px solid #56869b; outline-offset: 3px; }
+.summaryHeader h2 { font-weight: 650; }
+.summaryHeader .metric { flex-shrink: 0; padding: 8px; }
+.summaryLoading { display: flex; align-items: center; gap: 8px; }
+.summaryLoading .spinning { flex-shrink: 0; }
+.summaryMarkdown { max-height: min(65vh, 680px); }
+@media (max-width: 980px) {
+  .readerShell.hasSummary { grid-template-columns: minmax(0, 1fr); }
+  .readerShell.hasSummary .readerMain { display: contents; }
+  .readerShell.hasSummary .reader { grid-row: 1; }
+  .readerShell.hasSummary .readerSideStack { grid-row: 2; position: static; scroll-margin-top: 180px; }
+  .readerShell.hasSummary .articleComments { grid-row: 3; }
+}

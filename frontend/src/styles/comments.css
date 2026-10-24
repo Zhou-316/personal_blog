@@ -1,0 +1,56 @@
+.readerMain { display: grid; align-content: start; gap: 22px; min-width: 0; }
+.articleComments { min-width: 0; padding: clamp(22px, 4vw, 36px); border: 1px solid rgba(255,255,255,.9); border-radius: var(--glass-radius); background: rgba(249,252,254,.95); box-shadow: var(--glass-shadow); }
+.commentsHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.commentsHeader h2 { margin: 0; font-size: 23px; font-weight: 650; }
+.commentsHeader h2 span { margin-left: 6px; color: var(--soft-ink); font-size: 14px; font-weight: 500; }
+.commentsHeader > span { color: var(--soft-ink); font-size: 12px; white-space: nowrap; }
+.articleCommentForm, .commentReplyForm { display: grid; gap: 12px; }
+.articleCommentForm { margin-bottom: 12px; }
+.articleCommentForm textarea, .commentReplyForm textarea { border-radius: 14px; font-size: 14px; line-height: 1.8; }
+.articleCommentForm textarea { min-height: 100px; }
+.articleCommentForm textarea::placeholder, .commentReplyForm textarea::placeholder { color: #8a9ba7; opacity: 1; }
+.commentSendButton { justify-self: end; font-size: 13px; }
+.commentThread { padding: 22px 0; border-top: 1px solid var(--line); }
+.commentThread:first-child { margin-top: 22px; }
+.commentThread:last-child { padding-bottom: 0; }
+.commentEntry { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; scroll-margin-top: 180px; }
+.commentAvatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #e3edf2; color: #3b6277; font-size: 14px; font-weight: 600; }
+.commentBody { min-width: 0; }
+.commentAuthor { display: block; color: var(--ink); font-size: 14px; font-weight: 650; line-height: 1.6; overflow-wrap: anywhere; }
+.commentContent { margin: 7px 0 0; color: #263e50; font-size: 14px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.commentTime { display: block; margin: 8px 0 3px; color: #88949f; font-size: 11px; font-weight: 400; line-height: 1.7; }
+.commentEntryActions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+.commentAction { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 4px 2px; border: 0; border-radius: 8px; background: transparent; color: var(--soft-ink); font-size: 12px; cursor: pointer; }
+.commentAction:hover { color: #315e73; }
+.commentAction.liked { color: #c35672; }
+.commentAction:disabled { opacity: .5; cursor: wait; }
+.commentAction:focus-visible { outline: 2px solid #56869b; outline-offset: 3px; }
+.commentDeleteAction { margin-left: auto; }
+.commentDeleteAction:hover { color: #b44c5c; }
+.commentReplyList { display: grid; gap: 20px; margin: 16px 0 0 17px; padding: 0 0 0 29px; border-left: 1px solid #d9e3eb; }
+.commentReply { grid-template-columns: 28px minmax(0, 1fr); gap: 10px; }
+.commentReply .commentAvatar { width: 28px; height: 28px; font-size: 12px; }
+.commentReplyContext { margin: 3px 0 0; color: #80909d; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.commentReplyContext a { color: #4a748b; text-decoration: none; }
+.commentReplyContext a:hover { text-decoration: underline; }
+.commentReplyForm { margin: 12px 0 4px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #f0f5f8; }
+.commentReplyFormHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--soft-ink); font-size: 12px; }
+.commentReplyFormHeader .commentAction { min-height: 28px; padding: 4px; }
+.commentReplyForm textarea { min-height: 88px; }
+.commentDeleted, .commentsEmpty { color: #88949f; font-size: 13px; line-height: 1.8; }
+.commentDeleted { margin: 4px 0; }
+.commentsEmpty { margin: 24px 0 0; }
+.commentError { margin-top: 12px; color: #ad4152; font-size: 13px; line-height: 1.7; }
+.commentError p { margin: 0 0 8px; }
+@media (max-width: 620px) {
+  .articleComments { padding: 22px; }
+  .commentsHeader h2 { font-size: 21px; }
+  .articleCommentForm textarea, .commentReplyForm textarea { font-size: 16px; }
+  .commentEntry { grid-template-columns: 30px minmax(0, 1fr); gap: 10px; }
+  .commentAvatar { width: 30px; height: 30px; font-size: 12px; }
+  .commentReplyList { margin-left: 14px; padding-left: 15px; }
+  .commentReply { grid-template-columns: 24px minmax(0, 1fr); gap: 8px; }
+  .commentReply .commentAvatar { width: 24px; height: 24px; font-size: 11px; }
+  .commentReplyForm { padding: 10px; }
+  .commentAction { min-height: 44px; }
+}

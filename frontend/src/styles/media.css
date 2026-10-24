@@ -6,8 +6,9 @@
 .mediaIconButton:disabled { opacity: .5; cursor: wait; }
 .editorToolbarLabel { margin-left: auto; padding: 0 4px; font-size: 12px; color: var(--soft-ink); }
 .editorField .editorArea { display: block; width: 100%; border-radius: 0 0 14px 14px; resize: vertical; }
+.editorArea::placeholder { color: #8a9ba7; opacity: 1; }
 .editorArea.dragging { outline: 3px solid #6e99ad; outline-offset: 2px; background: #eaf2f7; }
-.editorMediaHint { margin: 10px 2px 0; color: var(--soft-ink); font-size: 12px; line-height: 1.8; }
+.editorMediaHint { margin: 0 2px 10px; color: var(--soft-ink); font-size: 12px; line-height: 1.8; }
 .composeMobileTabs { display: none; }
 .mediaModal { width: min(480px, 100%); max-height: calc(100dvh - 40px); overflow: auto; overscroll-behavior: contain; padding: 26px; border: 1px solid rgba(255,255,255,.8); border-radius: 22px; background: #f8fafc; color: var(--ink); box-shadow: 0 24px 80px #112b4540; }
 .mediaModalHeading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
@@ -28,8 +29,7 @@
 .musicPlayButton:disabled { opacity: .6; }
 .musicProgress { margin-top: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--soft-ink); font-variant-numeric: tabular-nums; }
 .musicProgress input[type="range"] { flex: 1; min-width: 0; height: 28px; margin: 0; padding: 0; border: 0; box-shadow: none; accent-color: #527e9e; background: transparent; }
-.musicPlayerFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-top: 2px; }
-.musicPlayerFooter small { color: var(--soft-ink); font-size: 11px; }
+.musicPlayerFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 2px; }
 .musicPlayerFooter .textButton { min-height: 36px; font-size: 12px; }
 .musicPlayer audio { display: none; }
 .musicQr, .musicAccount { display: grid; justify-items: center; gap: 14px; margin-bottom: 20px; text-align: center; }

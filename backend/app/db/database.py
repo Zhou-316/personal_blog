@@ -66,6 +66,9 @@ def init_db() -> None:
                 author_id INTEGER NOT NULL,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                parent_id INTEGER REFERENCES comments(id),
+                root_id INTEGER REFERENCES comments(id),
+                deleted_at TEXT,
                 FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
                 FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
             );
@@ -127,6 +130,15 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     post_columns = {row["name"] for row in conn.execute("PRAGMA table_info(posts)").fetchall()}
     if "category" not in post_columns:
         conn.execute("ALTER TABLE posts ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+
+    comment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(comments)").fetchall()}
+    for name in ("parent_id", "root_id"):
+        if name not in comment_columns:
+            conn.execute(f"ALTER TABLE comments ADD COLUMN {name} INTEGER REFERENCES comments(id)")
+    if "deleted_at" not in comment_columns:
+        conn.execute("ALTER TABLE comments ADD COLUMN deleted_at TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments(parent_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_root_id ON comments(root_id)")
 
 
 def grant_owner(conn: sqlite3.Connection) -> None:

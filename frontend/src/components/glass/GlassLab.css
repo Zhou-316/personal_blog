@@ -1,0 +1,15 @@
+.glassLab { position: fixed; z-index: 100; bottom: 16px; right: 16px; width: 294px; max-height: calc(100dvh - 32px);
+  overflow-y: auto; border: 1px solid #cadbe7; border-radius: 18px; background: #f5f9fd; color: #203344;
+  box-shadow: 0 12px 48px #122b4540; font: 12px/1.5 system-ui;
+}
+.glassLabHeading { display: flex; justify-content: space-between; width: 100%; padding: 15px; border: 0; background: #e5eff7; color: inherit; cursor: pointer; }
+.glassLabBody { display: grid; gap: 12px; padding: 15px; }
+.glassLabPresets { display: flex; gap: 6px; }
+.glassLabPresets button { min-width: 36px; min-height: 36px; border: 1px solid #c7d8e5; background: white; border-radius: 9px; color: inherit; cursor: pointer; }
+.glassLabPresets button[aria-pressed='true'] { background: #315f79; color: white; }
+.glassLab label { display: grid; grid-template-columns: 1fr auto; gap: 5px; font: inherit; color: inherit; }
+.glassLab input { grid-column: 1 / -1; height: 22px; min-height: 22px; padding: 0; box-shadow: none; accent-color: #386f82; }
+.glassLabValues { font: 10px/1.6 monospace; overflow-wrap: anywhere; color: #526575; }
+@media (max-width: 620px) {
+  .glassLab { width: min(294px,calc(100% - 24px)); right: 12px; bottom: 12px; }
+}
